@@ -17,6 +17,7 @@ No prose outside the JSON. No multi-tool batches.
 - `resolve_paper` — resolve arXiv/DOI (e.g. `1706.03762`) and extract abstract/text before paste-only flow
 - `search_open` — find open papers/code/datasets/hardware for the input
 - `expand_graph` — neighbour entities for current resources (feed into paper plan)
+- `segment_photo` — segment the run photo (SAM 3 on Baseten GPU) and name the parts (Muse). Photo runs only. The photo is already on the run: call with `{}` (optional `{"prompt": "..."}`). Never paste image data into args.
 - `set_plan` — Muse write a build/reproduction plan (idea) or claim plan (paper)
 - `draft_code` — Muse draft prototype files (requires accepted plan for ideas)
 - `run_sandbox` — ask the client browser sandbox to run current files
@@ -31,6 +32,13 @@ No prose outside the JSON. No multi-tool batches.
 ## Paper path (Transformer / arXiv)
 
 Prefer `resolve_paper` with `arxiv:1706.03762` (or DOI) → `search_open` related work → `expand_graph` → `set_plan` → draft/run/judge → `cite_sources` → submit. Do not invent citations.
+
+## Photo path (hardware photo)
+
+`segment_photo` → `cite_sources` → `submit_prototype` → `handoff_studio` / `finish`. Photo runs
+produce a parts list, not code: skip `draft_code` / `run_sandbox` / `fix_code`. If the tool reports
+`warming: true`, call it again (the GPU cold-starts in 30–90s). If it reports `missing` keys, degrade
+via `request_human` and name the variable to set instead of spinning.
 
 ## Verification (non-skippable)
 

@@ -11,7 +11,7 @@ import { withUsage } from '../usage';
 import { getLabPlan, assertLabProUnderCap } from '../lab-plan';
 import { chooseTool } from '../muse-agent';
 import { museRoutingTable, routeMuseModel } from '../muse-models';
-import { definitions, loadPlaybook, runTool, TOOL_NAMES } from './tools';
+import { definitions, loadPlaybook, runTool, MAX_PHOTO_CHARS, TOOL_NAMES } from './tools';
 import { loadProgress, newRunId, saveProgress } from './progress';
 import type { AgentTurnResult, ConsoleRow, LabRun, LabRunKind } from './types';
 
@@ -31,6 +31,15 @@ function summarize(run: LabRun): string {
       files: run.files.map((f) => f.path),
       fixCount: run.fixCount,
       submitRefusals: run.submitRefusals,
+      photo:
+        run.kind === 'photo'
+          ? {
+              hasImage: !!run.photoImage,
+              segments: run.photoSegments?.length ?? 0,
+              parts: run.parts?.length ?? 0,
+              hasPartsList: !!run.partsMarkdown,
+            }
+          : undefined,
       sandbox: run.sandbox ? { ok: run.sandbox.ok, error: run.sandbox.error?.slice(0, 200) } : null,
       verdict: run.verdict ?? null,
       citations: run.citations.length,
@@ -46,10 +55,27 @@ function pushConsole(run: LabRun, phase: ConsoleRow['phase'], text: string, tool
   run.console.push({ turn: run.turn, phase, text, tool, at: Date.now() });
 }
 
+/**
+ * Data URLs would blow the controller context on the next turn (megabytes of
+ * base64 in the message history), so the history holds a placeholder. The
+ * bytes stay on the run, where segment_photo reads them.
+ */
+function redactImages(value: unknown): unknown {
+  if (typeof value === 'string') {
+    return value.startsWith('data:image/') ? `[image ${(value.length / 1024).toFixed(0)}KB held on run]` : value;
+  }
+  if (Array.isArray(value)) return value.map(redactImages);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, redactImages(v)]));
+  }
+  return value;
+}
+
 export function createRun(input: {
   kind: LabRunKind;
   input: string;
   planTier?: 'free' | 'pro';
+  image?: string;
 }): LabRun {
   assertLabProUnderCap();
   const plan = getLabPlan(input.planTier);
@@ -71,6 +97,7 @@ export function createRun(input: {
     submitRefusals: 0,
     createdAt: now,
     updatedAt: now,
+    ...(input.image ? { photoImage: input.image } : {}),
   };
 }
 
@@ -125,8 +152,10 @@ export async function runAgent(run: LabRun, opts: { maxTurns?: number } = {}): P
     }
 
     const call = choicePack.value;
-    run.messages.push({ role: 'assistant', content: JSON.stringify(call), tool: call.name });
-    pushConsole(run, 'act', `${call.name}(${JSON.stringify(call.args).slice(0, 200)})`, call.name);
+    // Redact before the history write: the tool still receives the real args.
+    const loggedCall = { ...call, args: redactImages(call.args) as Record<string, unknown> };
+    run.messages.push({ role: 'assistant', content: JSON.stringify(loggedCall), tool: call.name });
+    pushConsole(run, 'act', `${call.name}(${JSON.stringify(loggedCall.args).slice(0, 200)})`, call.name);
 
     const { result: outcome, usage: toolUsage } = await withUsage(async () => runTool(run, call));
     run.usage.push(...toolUsage);
@@ -172,11 +201,20 @@ export async function resumeRun(
     signedOff?: boolean;
     sandbox?: LabRun['sandbox'];
     humanNote?: string;
+    image?: string;
   },
 ): Promise<AgentTurnResult> {
   const run = await loadProgress(id);
   if (!run) throw new Error(`Unknown run ${id}`);
 
+  if (patch.image) {
+    if (!patch.image.startsWith('data:image/')) throw new Error('image must be a data:image/... URL');
+    if (patch.image.length > MAX_PHOTO_CHARS) throw new Error('Photo is too large; shrink it under ~2MB and try again.');
+    run.photoImage = patch.image;
+    run.messages.push({ role: 'user', content: 'Human uploaded the photo. Call segment_photo.' });
+    pushConsole(run, 'observe', 'Human uploaded the photo.');
+    if (run.status === 'needs_input') run.status = 'running';
+  }
   if (patch.planApproved) {
     run.planApproved = true;
     run.messages.push({ role: 'user', content: 'Human approved the plan. Continue.' });

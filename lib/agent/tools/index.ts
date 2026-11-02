@@ -1,7 +1,8 @@
 /**
  * Tool registry — handbook pattern: definitions() + run().
  * LLM reasoning tools use Muse only (via lib/muse.ts + lib/muse-agent.ts).
- * Baseten SAM remains optional and is not registered on the Muse MVP path.
+ * segment_photo is the one exception that touches the GPU: it calls the
+ * existing Baseten SAM client, then returns to Muse for names + parts list.
  */
 
 import { readFileSync } from 'node:fs';
@@ -15,8 +16,10 @@ import {
   type Resource,
 } from '../../openidea';
 import { neighbourhood, describeGraph } from '../../graph';
-import { draftNotebook, draftPrototype, planIdea, type Plan } from '../../muse';
+import { draftNotebook, draftPrototype, enrichParts, labelSegments, planIdea, type Plan } from '../../muse';
 import { museFix, museRank, museVerdict } from '../../muse-agent';
+import { segment } from '../../baseten-sam3';
+import { overBudget } from '../../budget';
 import { getLabPlan, freeFenceMessage } from '../../lab-plan';
 import { checkPlan } from '../verify/plan';
 import { checkPrototype } from '../verify/prototype';
@@ -27,6 +30,7 @@ export const TOOL_NAMES = [
   'resolve_paper',
   'search_open',
   'expand_graph',
+  'segment_photo',
   'set_plan',
   'draft_code',
   'run_sandbox',
@@ -41,11 +45,18 @@ export const TOOL_NAMES = [
 
 export type ToolName = (typeof TOOL_NAMES)[number];
 
+/** Runs cap the held photo: data URLs bloat the progress store past this (~2MB of JPEG). */
+export const MAX_PHOTO_CHARS = 3_000_000;
+
+/** Labelling is priced per image, so a busy photo is cut to the top 12 (same cap as POST /api/lab/segment). */
+const MAX_PHOTO_PARTS = 12;
+
 export function definitions(): { name: string; description: string }[] {
   return [
     { name: 'resolve_paper', description: 'Resolve arXiv/DOI and extract abstract/text (e.g. 1706.03762)' },
     { name: 'search_open', description: 'Search openidea.world and Muse-rank results' },
     { name: 'expand_graph', description: 'Expand knowledge-graph neighbourhood for resources' },
+    { name: 'segment_photo', description: 'Segment the run photo (SAM 3 on Baseten) and name the parts (Muse). Photo runs only; the photo is already on the run, call with {}' },
     { name: 'set_plan', description: 'Muse write a structural plan (verified)' },
     { name: 'draft_code', description: 'Muse draft prototype / notebook files' },
     { name: 'run_sandbox', description: 'Pause for client browser sandbox (WebContainer/Pyodide)' },
@@ -79,6 +90,8 @@ export async function runTool(run: LabRun, call: ToolCall): Promise<ToolOutcome>
       return searchOpen(run, call.args);
     case 'expand_graph':
       return expandGraph(run);
+    case 'segment_photo':
+      return segmentPhoto(run, call.args);
     case 'set_plan':
       return setPlan(run);
     case 'draft_code':
@@ -191,7 +204,122 @@ async function expandGraph(run: LabRun): Promise<ToolOutcome> {
   };
 }
 
+/**
+ * Photo tool: the server-side mirror of POST /api/lab/segment's two calls in
+ * one turn. SAM 3 segments, Muse names each box from the full photo + box
+ * list, OpenIdea finds datasheets/listings, Muse writes the parts list.
+ * Every provider is optional: a missing key returns a named observation, never
+ * a throw, so the controller can degrade to request_human.
+ */
+async function segmentPhoto(run: LabRun, args: Record<string, unknown>): Promise<ToolOutcome> {
+  const incoming = typeof args.image === 'string' ? args.image : undefined;
+  if (incoming) {
+    if (!incoming.startsWith('data:image/')) {
+      return { observation: JSON.stringify({ ok: false, error: 'image must be a data:image/... URL.' }) };
+    }
+    if (incoming.length > MAX_PHOTO_CHARS) {
+      return {
+        observation: JSON.stringify({
+          ok: false,
+          error: `Photo is ${(incoming.length / 1e6).toFixed(1)}MB; shrink it under ~2MB (resize/compress) and call segment_photo again.`,
+        }),
+      };
+    }
+    run.photoImage = incoming;
+  }
+  const image = run.photoImage;
+  if (!image) {
+    run.status = 'needs_input';
+    run.stopReason = 'photo_upload';
+    return {
+      observation: JSON.stringify({
+        ok: false,
+        waiting: 'photo_upload',
+        error: 'No photo on this run. Ask for one via request_human, then resume with the image attached.',
+      }),
+      needsHuman: true,
+    };
+  }
+  const prompt = typeof args.prompt === 'string' ? args.prompt.slice(0, 300) : undefined;
+
+  const blocked = await overBudget('baseten');
+  if (blocked) return { observation: JSON.stringify({ ok: false, error: blocked, budget: true }) };
+
+  const seg = await segment(image, prompt);
+  if (!seg.ok) return { observation: JSON.stringify(seg) };
+  if (seg.value.warming) {
+    return {
+      observation: JSON.stringify({
+        ok: true,
+        warming: true,
+        retry: 'The GPU is still starting (scale-to-zero cold start, 30–90s). Call segment_photo again with {}.',
+      }),
+    };
+  }
+  const top = seg.value.segments.slice(0, MAX_PHOTO_PARTS);
+  if (!top.length) {
+    return {
+      observation: JSON.stringify({ ok: true, segments: 0, note: 'SAM 3 returned no segments. Ask for a closer photo or finish.' }),
+    };
+  }
+  // Masks stay out of the run: each is a full-size PNG data URL.
+  run.photoSegments = top.map((s) => ({ index: s.index, bbox: s.bbox, score: s.score }));
+
+  const labelled = await labelSegments(image, run.photoSegments);
+  if (!labelled.ok) {
+    return { observation: JSON.stringify({ ...labelled, segments: run.photoSegments }) };
+  }
+  run.parts = labelled.value;
+
+  const names = run.parts.map((p) => p.name);
+  const found = await search(names.slice(0, 5).join(' '), { types: ['hardware', 'code'], limit: 10 });
+  // Search stays best-effort: the parts list is still writable without context.
+  const context = found.ok ? found.value : [];
+  run.resources = mergeResources(run.resources, context);
+
+  const list = await enrichParts(names, context);
+  if (!list.ok) {
+    return {
+      observation: JSON.stringify({
+        ok: true,
+        segments: run.photoSegments,
+        parts: run.parts,
+        warning: `parts list failed: ${list.error}`,
+        ...(list.missing ? { missing: list.missing } : {}),
+      }),
+    };
+  }
+  run.partsMarkdown = list.value;
+  return {
+    observation: JSON.stringify({
+      ok: true,
+      segments: run.photoSegments.length,
+      boxes: run.photoSegments,
+      parts: run.parts,
+      markdown: run.partsMarkdown,
+      searchNote: found.ok ? `${context.length} openidea resources merged` : `search skipped: ${found.error}`,
+    }),
+  };
+}
+
 async function setPlan(run: LabRun): Promise<ToolOutcome> {
+  if (run.kind === 'photo') {
+    const plan: Plan = {
+      summary: 'Segment the hardware photo, name each part, find datasheets/listings, write the parts list.',
+      buildable: true,
+      exists: [
+        'Uploaded hardware photo',
+        ...run.resources.slice(0, 3).map((r) => r.title),
+        ...(run.photoSegments?.length ? [`${run.photoSegments.length} SAM segments`] : []),
+      ],
+      missing: run.partsMarkdown ? ['nothing critical'] : ['segment_photo observation'],
+      steps: ['segment_photo', 'cite_sources', 'submit_prototype'],
+    };
+    const check = checkPlan(plan);
+    if (!check.ok) return { observation: JSON.stringify({ ok: false, refused: true, feedback: check.feedback }) };
+    run.plan = plan;
+    return { observation: JSON.stringify({ ok: true, plan }) };
+  }
   if (run.kind === 'paper') {
     const graphNote = run.graphText ? ` Graph grounding: ${run.graphText.slice(0, 500)}` : '';
     const plan: Plan = {

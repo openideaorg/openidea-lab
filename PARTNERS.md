@@ -13,7 +13,7 @@ verdicts). One provider, one bill, inside the ≤$20 credit.
 | **Meta** | Muse Wonder + Muse Spark (+ Contributor) | **Primary LLM path**: Wonder/Spark for plan, draft, hard fix, verdict, controller; Muse Spark Contributor for rank/observe/cheap retries. Router in [`lib/muse-models.ts`](lib/muse-models.ts). Key via `META_API_KEY` (Cursor / Claude Code). | [`lib/muse.ts`](lib/muse.ts), [`lib/muse-agent.ts`](lib/muse-agent.ts), [`lib/agent/`](lib/agent/) |
 | **Meta** | SAM 3.1 (`sam-3.1`) | Optional Meta API segmentation (alongside Baseten SAM) | [`lib/muse-models.ts`](lib/muse-models.ts) |
 | **Meta** | SAM 3 | Optional vision: outlines parts in a hardware photo (secondary to Muse reasoning) | [`baseten/sam3/`](baseten/sam3/) (deployment), [`lib/baseten-sam3.ts`](lib/baseten-sam3.ts) (client) |
-| **Baseten** | GPU model hosting | Optional SAM 3 HTTPS endpoint (Moonstar GPU credit; not LLM) | [`baseten/sam3/`](baseten/sam3/) |
+| **Baseten** | GPU model hosting | Optional SAM 3 HTTPS endpoint (Moonstar GPU credit; not LLM) | [`baseten/sam3/`](baseten/sam3/), [`lib/baseten-sam3.ts`](lib/baseten-sam3.ts), [`lib/agent/tools/index.ts`](lib/agent/tools/index.ts) (`segment_photo` agent tool) |
 | **Fireworks** | Fast open-model inference | **Legacy one-shot flows only** — not used by the Muse-only agent loop | [`lib/fireworks.ts`](lib/fireworks.ts) |
 
 ## Product packaging

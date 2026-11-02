@@ -2,7 +2,7 @@
  * Lab agent run record — handbook-shaped state for the Muse-only tool loop.
  */
 
-import type { Plan, GeneratedFile } from '../muse';
+import type { Plan, GeneratedFile, LabelledPart } from '../muse';
 import type { Resource } from '../openidea';
 import type { UsageEntry } from '../usage-types';
 
@@ -65,6 +65,14 @@ export interface LabRun {
   /** Testable claim the draft step extracted (paper runs). Judged, not the raw paste. */
   claim?: string;
   figures?: string[];
+  /** Photo runs: the uploaded image (data URL) lives on the run so segment_photo can reuse it across turns. */
+  photoImage?: string;
+  /** SAM boxes without masks — masks are full-size PNG data URLs and would bloat the progress store. */
+  photoSegments?: { index: number; bbox: [number, number, number, number]; score: number }[];
+  /** Muse names for each segment, in segment order. */
+  parts?: LabelledPart[];
+  /** Enriched parts-list markdown (Muse + OpenIdea context). */
+  partsMarkdown?: string;
   citations: Citation[];
   sandbox?: { ok: boolean; output?: string; error?: string; previewUrl?: string };
   verdict?: LabVerdict;

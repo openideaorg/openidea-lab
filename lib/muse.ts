@@ -49,7 +49,10 @@ export interface GeneratedFile {
   content: string;
 }
 
-type Content = string | { type: 'text'; text: string }[] | { type: 'image_url'; image_url: { url: string } }[];
+type ContentPart = { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } };
+// Mixed text+image arrays ride the same OpenAI-compatible content field; the
+// old single-kind arrays still assign, so existing callers are untouched.
+type Content = string | ContentPart[];
 
 async function chat(tier: MuseTier, label: string, system: string, user: Content, json = false): Promise<Result<string>> {
   const key = keyFor('meta');
@@ -242,6 +245,40 @@ export async function labelParts(crops: string[]): Promise<Result<LabelledPart[]
     'Each image is one part cut out of a photo of hardware. Name it (e.g. "ESP32 module", "M3 hex bolt", "16x2 LCD"). ' +
       'Return JSON {"parts": [{"index": number, "name": string, "confidence": number}]}.',
     crops.map((url) => ({ type: 'image_url' as const, image_url: { url } })),
+    true,
+  );
+  if (!r.ok) return r;
+  try {
+    const { parts } = JSON.parse(r.value) as { parts: LabelledPart[] };
+    return { ok: true, value: parts };
+  } catch {
+    return { ok: false, error: 'Labeller returned invalid JSON' };
+  }
+}
+
+/**
+ * Agent-loop labelling: name each SAM segment from the full photo plus its box
+ * list. The /photo UI crops client-side on a canvas; the server has no image
+ * decoder and must not gain one for this, so the boxes travel as text and the
+ * full image as a single vision input. Same JSON contract as labelParts.
+ */
+export async function labelSegments(
+  image: string,
+  boxes: { index: number; bbox: [number, number, number, number]; score: number }[],
+): Promise<Result<LabelledPart[]>> {
+  const listing = boxes
+    .map((b) => `#${b.index}: [x=${b.bbox[0]}, y=${b.bbox[1]}, w=${b.bbox[2]}, h=${b.bbox[3]}] score ${b.score.toFixed(2)}`)
+    .join('\n');
+  const r = await chat(
+    'contributor',
+    'label',
+    'You see one photo of hardware. Below it is a numbered list of bounding boxes in pixels of this exact image. ' +
+      'Name the part inside EACH box (e.g. "ESP32 module", "M3 hex bolt", "16x2 LCD"). ' +
+      'Return JSON {"parts": [{"index": number, "name": string, "confidence": number}]} with one entry per box, in box order.',
+    [
+      { type: 'image_url', image_url: { url: image } },
+      { type: 'text', text: `Boxes:\n${listing}` },
+    ],
     true,
   );
   if (!r.ok) return r;

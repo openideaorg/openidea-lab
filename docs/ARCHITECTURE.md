@@ -15,7 +15,7 @@ Workspaces by deep link. It contains no platform code.
                                         ▼
                  ┌──────────────────────────────────────────────┐
                  │ Muse Agent loop (choose one tool / turn)     │
-                 │ search · graph · plan · draft · fix · judge  │
+                 │ search · graph · plan · draft · fix · segment · judge │
                  └──────────────────────┬───────────────────────┘
                                         │ files + console
           ┌─────────────────────────────┼─────────────────────────────┐
@@ -40,7 +40,9 @@ target one figure or table on a small sample, and the UI says so.
 
 **SAM 3 on Baseten.** Segmentation needs a GPU. Baseten serves a model behind an HTTPS
 endpoint with scale-to-zero; `baseten/sam3/` is the Truss config. Cold starts are 30–90 s,
-so the UI shows a warming state instead of a spinner.
+so the UI shows a warming state instead of a spinner. The agent loop reaches the same
+endpoint through the `segment_photo` tool (`lib/agent/tools/`), which pairs each box with
+a Muse name and OpenIdea context; the `/photo` page path is unchanged.
 
 **One file per provider.** `lib/muse.ts`, `lib/baseten-sam3.ts`,
 `lib/openidea.ts`. Each exports plain functions. Nothing else imports an SDK. Swapping a

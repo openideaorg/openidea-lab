@@ -5,6 +5,7 @@ import { overBudget } from '@/lib/budget';
 import { getLabPlan, LAB_PLANS, LAB_PRO_MAX_PRICE_USD } from '@/lib/lab-plan';
 import { createRun, getRun, resumeRun, runAgent } from '@/lib/agent/loop';
 import { takeLabRunSlot } from '@/lib/agent/meter';
+import { MAX_PHOTO_CHARS } from '@/lib/agent/tools';
 import { keyFor } from '@/lib/env';
 import { museRoutingTable, museTaskModelMap } from '@/lib/muse-models';
 
@@ -12,9 +13,11 @@ export const maxDuration = 120;
 
 const Start = z.object({
   action: z.literal('start'),
-  kind: z.enum(['idea', 'paper']),
+  kind: z.enum(['idea', 'paper', 'photo']),
   input: z.string().min(5).max(60_000),
   planTier: z.enum(['free', 'pro']).optional(),
+  /** data:image/... URL for photo runs; held on the run for segment_photo. */
+  image: z.string().startsWith('data:image/').max(MAX_PHOTO_CHARS).optional(),
 });
 
 const Resume = z.object({
@@ -23,6 +26,8 @@ const Resume = z.object({
   planApproved: z.boolean().optional(),
   signedOff: z.boolean().optional(),
   humanNote: z.string().max(4000).optional(),
+  /** Attach (or replace) the run photo, e.g. after a photo_upload pause. */
+  image: z.string().startsWith('data:image/').max(MAX_PHOTO_CHARS).optional(),
   sandbox: z
     .object({
       ok: z.boolean(),
@@ -80,7 +85,7 @@ export const POST = safe(async (req: Request) => {
     const blocked = await overBudget('meta');
     if (blocked) return NextResponse.json({ ok: false, error: blocked, budget: true }, { status: 429 });
 
-    const run = createRun({ kind: body.kind, input: body.input, planTier: tier });
+    const run = createRun({ kind: body.kind, input: body.input, planTier: tier, image: body.image });
     const result = await runAgent(run);
     return NextResponse.json({
       ok: true,
@@ -98,6 +103,7 @@ export const POST = safe(async (req: Request) => {
       planApproved: body.planApproved,
       signedOff: body.signedOff,
       humanNote: body.humanNote,
+      image: body.image,
       sandbox: body.sandbox,
     });
     return NextResponse.json({ ok: true, value: result, plans: LAB_PLANS, maxPriceUsd: LAB_PRO_MAX_PRICE_USD });
