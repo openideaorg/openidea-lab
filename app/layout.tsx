@@ -19,6 +19,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </Link>
             <nav className="flex gap-4 text-sm text-[var(--muted)]">
               <Link href="/agent" className="hover:text-[var(--fg)]">Agent</Link>
+              <Link href="/demo/paid?step=paid" className="hover:text-[var(--fg)]">Paid demo</Link>
               <Link href="/idea" className="hover:text-[var(--fg)]">Idea</Link>
               <Link href="/paper" className="hover:text-[var(--fg)]">Paper</Link>
               <Link href="/photo" className="hover:text-[var(--fg)]">Photo</Link>
