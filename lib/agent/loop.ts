@@ -10,6 +10,7 @@ import { overBudget } from '../budget';
 import { withUsage } from '../usage';
 import { getLabPlan, assertLabProUnderCap } from '../lab-plan';
 import { chooseTool } from '../muse-agent';
+import { museRoutingTable, routeMuseModel } from '../muse-models';
 import { definitions, loadPlaybook, runTool, TOOL_NAMES } from './tools';
 import { loadProgress, newRunId, saveProgress } from './progress';
 import type { AgentTurnResult, ConsoleRow, LabRun, LabRunKind } from './types';
@@ -97,13 +98,18 @@ export async function runAgent(run: LabRun, opts: { maxTurns?: number } = {}): P
     }
 
     run.turn += 1;
-    pushConsole(run, 'plan', `Turn ${run.turn}: Muse choosing tool…`);
+    const chooseRoute = routeMuseModel('choose');
+    pushConsole(run, 'plan', `Turn ${run.turn}: Muse choosing tool… (${chooseRoute.model})`);
 
     const { result: choicePack, usage } = await withUsage(async () =>
       chooseTool(
-        playbook + `\n\nAvailable tools:\n${definitions()
-          .map((d) => `- ${d.name}: ${d.description}`)
-          .join('\n')}`,
+        playbook +
+          `\n\nAvailable tools:\n${definitions()
+            .map((d) => `- ${d.name}: ${d.description}`)
+            .join('\n')}` +
+          `\n\nMuse routing (quality vs credit):\n${museRoutingTable()
+            .map((r) => `- ${r.task}: ${r.model} [${r.tier}] — ${r.why}`)
+            .join('\n')}`,
         summarize(run),
         run.messages.map((m) => ({ role: m.role === 'tool' ? 'user' : m.role, content: m.content })),
       ),

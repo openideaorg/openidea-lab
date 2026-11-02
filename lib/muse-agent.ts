@@ -1,12 +1,11 @@
 /**
- * Muse-only agent reasoning helpers.
+ * Muse-only agent reasoning helpers — per-task model ids from muse-models.ts.
  *
- * Extends the Meta Model API path in muse.ts for the handbook tool loop:
- * controller tool choice, ranking, code fix, and paper verdict — all Muse.
- * Keys still come from META_API_KEY via keyFor('meta') / lib/env.ts.
+ * Controller / verdict → Wonder; fix / rank → Spark; keys via META_API_KEY.
  */
 
 import { env, keyFor, notConfigured, type Result } from './env';
+import { routeMuseModel, type MuseTask, type RouteHint } from './muse-models';
 import type { GeneratedFile } from './muse';
 import type { Resource } from './openidea';
 import { recordTokens, type ApiUsage } from './usage';
@@ -15,27 +14,31 @@ import type { LabVerdict, ToolCall } from './agent/types';
 const META_API = `${env.metaApiUrl}/chat/completions`;
 
 async function chat(
+  task: MuseTask,
   label: string,
   messages: { role: string; content: string }[],
   json = false,
+  hint?: RouteHint,
 ): Promise<Result<string>> {
   const key = keyFor('meta');
   if (!key) return notConfigured('meta');
+  const route = routeMuseModel(task, hint);
+  const model = route.model;
 
   const res = await fetch(META_API, {
     method: 'POST',
     headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      model: env.metaModel,
+      model,
       messages,
       ...(json ? { response_format: { type: 'json_object' } } : {}),
     }),
   });
-  if (!res.ok) return { ok: false, error: `Muse Spark failed: ${res.status} ${await res.text()}` };
+  if (!res.ok) return { ok: false, error: `Muse (${model}) failed: ${res.status} ${await res.text()}` };
   const body = (await res.json()) as { choices?: { message?: { content?: string } }[]; usage?: ApiUsage };
-  recordTokens('meta', env.metaModel, label, body.usage);
+  recordTokens('meta', model, label, body.usage);
   const content = body.choices?.[0]?.message?.content;
-  return content ? { ok: true, value: content } : { ok: false, error: 'Muse Spark returned no content' };
+  return content ? { ok: true, value: content } : { ok: false, error: `Muse (${model}) returned no content` };
 }
 
 function extractJson(text: string): unknown {
@@ -49,7 +52,7 @@ function extractJson(text: string): unknown {
   }
 }
 
-/** Controller: Muse picks exactly one tool. */
+/** Controller: Muse Wonder picks exactly one tool. */
 export async function chooseTool(
   playbook: string,
   stateSummary: string,
@@ -63,7 +66,7 @@ export async function chooseTool(
     ...history.slice(-12),
     { role: 'user', content: `Current run state:\n${stateSummary}\n\nChoose the next tool.` },
   ];
-  const r = await chat('agent_choose', messages, true);
+  const r = await chat('choose', 'agent_choose', messages, true);
   if (!r.ok) return r;
   try {
     const parsed = extractJson(r.value) as { tool?: string; name?: string; args?: Record<string, unknown> };
@@ -75,11 +78,12 @@ export async function chooseTool(
   }
 }
 
-/** Rank/trim search results with Muse (replaces Fireworks rank on the agent path). */
+/** Rank/trim search results with Muse Spark (classification). */
 export async function museRank(input: string, results: Resource[], keep = 6): Promise<Result<Resource[]>> {
   if (results.length <= keep) return { ok: true, value: results };
   const listing = results.map((r, i) => `${i}. [${r.type}] ${r.title}: ${r.description?.slice(0, 120) ?? ''}`).join('\n');
   const r = await chat(
+    'rank',
     'agent_rank',
     [
       {
@@ -99,9 +103,17 @@ export async function museRank(input: string, results: Resource[], keep = 6): Pr
   }
 }
 
-/** Muse fix loop — agent path never calls Fireworks. */
-export async function museFix(files: GeneratedFile[], error: string): Promise<Result<GeneratedFile[]>> {
+/**
+ * Muse fix loop — Spark primary for hard fixes; Contributor on cheap retries
+ * (attempt >= 2). Agent path never calls Fireworks.
+ */
+export async function museFix(
+  files: GeneratedFile[],
+  error: string,
+  hint?: RouteHint,
+): Promise<Result<GeneratedFile[]>> {
   const r = await chat(
+    'fix',
     'agent_fix',
     [
       {
@@ -112,6 +124,7 @@ export async function museFix(files: GeneratedFile[], error: string): Promise<Re
       { role: 'user', content: `Error:\n${error}\n\nFiles:\n${files.map((f) => `--- ${f.path}\n${f.content}`).join('\n\n')}` },
     ],
     true,
+    hint,
   );
   if (!r.ok) return r;
   try {
@@ -122,9 +135,10 @@ export async function museFix(files: GeneratedFile[], error: string): Promise<Re
   }
 }
 
-/** Muse paper verdict. */
+/** Muse Wonder paper verdict. */
 export async function museVerdict(claim: string, readme: string, output: string): Promise<Result<LabVerdict>> {
   const r = await chat(
+    'verdict',
     'agent_verdict',
     [
       {

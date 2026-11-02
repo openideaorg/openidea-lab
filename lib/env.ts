@@ -37,6 +37,7 @@ export const env = {
   labUrl: process.env.NEXT_PUBLIC_LAB_URL || 'http://localhost:3000',
   openideaUrl: process.env.OPENIDEA_API_URL || 'https://openidea.world/api/v1',
   metaApiUrl: (process.env.META_API_URL || 'https://api.meta.ai/v1').replace(/\/$/, ''),
+  /** @deprecated Prefer per-task ids in lib/muse-models.ts. Kept for dashboards / force-all. */
   metaModel: process.env.META_MODEL || 'muse-spark-1.3',
   fireworksCodeModel:
     process.env.FIREWORKS_CODE_MODEL || 'accounts/fireworks/models/deepseek-v4p1-flash',

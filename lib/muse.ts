@@ -1,17 +1,15 @@
 /**
- * Muse Spark via the Meta Model API.
+ * Muse via the Meta Model API — plan / draft / enrich.
  *
- * Muse Spark does the work that needs the most reasoning: read a paper or an
- * idea, decide what is reproducible, plan it, and write the first draft of the
- * code. It is called once or twice per flow. The many small fix-up calls go to
- * Fireworks (see fireworks.ts), which is faster and cheaper.
+ * Model ids are chosen per task in lib/muse-models.ts (Wonder vs Spark vs SAM).
+ * Auth: META_API_KEY via keyFor('meta') (Cursor / Claude Code Muse keys).
  *
- * The API is OpenAI-compatible chat completions at https://api.meta.ai/v1
- * (docs: https://dev.meta.ai/docs/protocols/chat-completions). The model id
- * moves with releases (1.1 → 1.3 during 2026); META_MODEL overrides the default.
+ * OpenAI-compatible chat completions at https://api.meta.ai/v1
+ * (https://dev.meta.ai/docs/protocols/chat-completions).
  */
 
 import { env, keyFor, notConfigured, type Result } from './env';
+import { routeMuseModel, type MuseTask, type RouteHint } from './muse-models';
 import type { Resource } from './openidea';
 import { recordTokens, type ApiUsage } from './usage';
 
@@ -30,15 +28,24 @@ export interface GeneratedFile {
   content: string;
 }
 
-async function chat(label: string, system: string, user: string, json = false): Promise<Result<string>> {
+async function chat(
+  task: MuseTask,
+  label: string,
+  system: string,
+  user: string,
+  json = false,
+  hint?: RouteHint,
+): Promise<Result<string>> {
   const key = keyFor('meta');
   if (!key) return notConfigured('meta');
+  const route = routeMuseModel(task, hint);
+  const model = route.model;
 
   const res = await fetch(META_API, {
     method: 'POST',
     headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      model: env.metaModel,
+      model,
       messages: [
         { role: 'system', content: system },
         { role: 'user', content: user },
@@ -46,11 +53,11 @@ async function chat(label: string, system: string, user: string, json = false): 
       ...(json ? { response_format: { type: 'json_object' } } : {}),
     }),
   });
-  if (!res.ok) return { ok: false, error: `Muse Spark failed: ${res.status} ${await res.text()}` };
+  if (!res.ok) return { ok: false, error: `Muse (${model}) failed: ${res.status} ${await res.text()}` };
   const body = (await res.json()) as { choices?: { message?: { content?: string } }[]; usage?: ApiUsage };
-  recordTokens('meta', env.metaModel, label, body.usage);
+  recordTokens('meta', model, label, body.usage);
   const content = body.choices?.[0]?.message?.content;
-  return content ? { ok: true, value: content } : { ok: false, error: 'Muse Spark returned no content' };
+  return content ? { ok: true, value: content } : { ok: false, error: `Muse (${model}) returned no content` };
 }
 
 /** Idea flow: is it buildable, what exists, what is missing, how to build it. */
@@ -61,7 +68,7 @@ export async function planIdea(idea: string, context: Resource[], graph = ''): P
     'Be concrete. Name the resources you rely on by title. When the knowledge graph names technologies the resources ' +
     'share, treat those as the proven building blocks and say what is NOT covered by any of them.';
   const user = `Idea:\n${idea}\n\nRelevant open resources:\n${describe(context)}${graph ? `\n\nKnowledge graph:\n${graph}` : ''}`;
-  const r = await chat('plan', system, user, true);
+  const r = await chat('plan', 'plan', system, user, true);
   return r.ok ? parseJson<Plan>(r.value) : r;
 }
 
@@ -72,7 +79,7 @@ export async function draftPrototype(idea: string, plan: Plan): Promise<Result<G
     'Return JSON: {"files": [{"path": string, "content": string}]}. Include package.json, index.html, src/main.tsx, src/App.tsx. ' +
     'No external packages beyond react and react-dom. Keep it under 200 lines.';
   const user = `Idea:\n${idea}\n\nPlan:\n${plan.steps.join('\n')}`;
-  const r = await chat('draft', system, user, true);
+  const r = await chat('draft', 'draft', system, user, true);
   return r.ok ? parseJson<{ files: GeneratedFile[] }>(r.value).then(unwrapFiles) : r;
 }
 
@@ -92,7 +99,7 @@ export async function draftNotebook(paperText: string, context: Resource[]): Pro
     'Return JSON: {"files": [{"path": "reproduce.py", "content": string}, {"path": "README.md", "content": string}]}. ' +
     'The README states the claim being tested in one sentence, the synthetic setup, and what "CHECK: pass" means.';
   const user = `Paper text (truncated):\n${paperText.slice(0, 60_000)}\n\nRelated open code and data:\n${describe(context)}`;
-  const r = await chat('notebook', system, user, true);
+  const r = await chat('draft', 'notebook', system, user, true);
   return r.ok ? parseJson<{ files: GeneratedFile[] }>(r.value).then(unwrapFiles) : r;
 }
 
@@ -102,7 +109,7 @@ export async function enrichParts(parts: string[], context: Resource[]): Promise
     'Given electronic or mechanical parts identified in a photo and open hardware search results, write a parts list in Markdown: ' +
     'part, likely model, datasheet link if present in the results, rough price, and what it does in this assembly.';
   const user = `Parts:\n${parts.join('\n')}\n\nSearch results:\n${describe(context)}`;
-  return chat('parts', system, user);
+  return chat('enrich', 'parts', system, user);
 }
 
 function describe(resources: Resource[]): string {
@@ -117,7 +124,7 @@ async function parseJson<T>(text: string): Promise<Result<T>> {
   try {
     return { ok: true, value: JSON.parse(text) as T };
   } catch {
-    return { ok: false, error: 'Muse Spark returned invalid JSON' };
+    return { ok: false, error: 'Muse returned invalid JSON' };
   }
 }
 

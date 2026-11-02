@@ -6,6 +6,7 @@ import { getLabPlan, LAB_PLANS, LAB_PRO_MAX_PRICE_USD } from '@/lib/lab-plan';
 import { createRun, getRun, resumeRun, runAgent } from '@/lib/agent/loop';
 import { takeLabRunSlot } from '@/lib/agent/meter';
 import { keyFor } from '@/lib/env';
+import { museRoutingTable, museTaskModelMap } from '@/lib/muse-models';
 
 export const maxDuration = 120;
 
@@ -87,7 +88,8 @@ export const POST = safe(async (req: Request) => {
       meter,
       plans: LAB_PLANS,
       maxPriceUsd: LAB_PRO_MAX_PRICE_USD,
-      model: process.env.META_MODEL || 'muse-spark-1.3',
+      models: museTaskModelMap(),
+      routing: museRoutingTable(),
     });
   }
 

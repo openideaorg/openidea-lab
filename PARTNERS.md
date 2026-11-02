@@ -6,7 +6,8 @@ called, so a judge can verify it in one click.
 
 | Partner | Product | What it does in Lab | Code |
 |---|---|---|---|
-| **Meta** | Muse Spark (Meta Model API) | **Primary LLM for Lab Agent**: tool choice, plan, draft, fix, rank, and paper verdict. Operators set `META_API_KEY` from Cursor / Claude Code Muse configuration — Lab never invents keys. | [`lib/muse.ts`](lib/muse.ts), [`lib/muse-agent.ts`](lib/muse-agent.ts), [`lib/agent/`](lib/agent/) |
+| **Meta** | Muse Wonder + Muse Spark (+ Contributor) | **Primary LLM path**: Wonder/Spark for plan, draft, hard fix, verdict, controller; Spark Contributor for rank/observe/cheap retries. Router in [`lib/muse-models.ts`](lib/muse-models.ts). Key via `META_API_KEY` (Cursor / Claude Code). | [`lib/muse.ts`](lib/muse.ts), [`lib/muse-agent.ts`](lib/muse-agent.ts), [`lib/agent/`](lib/agent/) |
+| **Meta** | SAM 3.1 (`sam-3.1`) | Optional Meta API segmentation (alongside Baseten SAM) | [`lib/muse-models.ts`](lib/muse-models.ts) |
 | **Meta** | SAM 3 | Optional vision: outlines parts in a hardware photo (secondary to Muse reasoning) | [`baseten/sam3/`](baseten/sam3/) (deployment), [`lib/baseten-sam3.ts`](lib/baseten-sam3.ts) (client) |
 | **Baseten** | GPU model hosting | Optional SAM 3 HTTPS endpoint (Moonstar GPU credit; not LLM) | [`baseten/sam3/`](baseten/sam3/) |
 | **Fireworks** | Fast open-model inference | **Legacy one-shot flows only** — not used by the Muse-only agent loop | [`lib/fireworks.ts`](lib/fireworks.ts) |

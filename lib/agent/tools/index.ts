@@ -190,11 +190,19 @@ async function fixCode(run: LabRun, args: Record<string, unknown>): Promise<Tool
   const error = String(args.error ?? run.sandbox?.error ?? '');
   if (!error) return { observation: JSON.stringify({ ok: false, error: 'No sandbox error on record.' }) };
   if (!run.files.length) return { observation: JSON.stringify({ ok: false, error: 'No files to fix.' }) };
-  const fixed = await museFix(run.files, error);
+  // attempt === current fixCount: 0–1 Spark primary; ≥2 Contributor (cheaper retry).
+  const fixed = await museFix(run.files, error, { attempt: run.fixCount });
   if (!fixed.ok) return { observation: JSON.stringify(fixed) };
   run.files = fixed.value;
   run.fixCount += 1;
-  return { observation: JSON.stringify({ ok: true, fixCount: run.fixCount, files: run.files.map((f) => f.path) }) };
+  return {
+    observation: JSON.stringify({
+      ok: true,
+      fixCount: run.fixCount,
+      files: run.files.map((f) => f.path),
+      museAttempt: run.fixCount - 1,
+    }),
+  };
 }
 
 async function judgePaper(run: LabRun): Promise<ToolOutcome> {

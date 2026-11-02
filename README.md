@@ -24,10 +24,12 @@ Lab does **not** invent API keys. The Muse-only path reads:
 ```bash
 META_API_KEY=…          # from Configure Claude Code / Cursor-configured Muse API keys
 META_API_URL=https://api.meta.ai/v1
-META_MODEL=muse-spark-1.3
+# Router (lib/muse-models.ts): Wonder/Spark primary builders; Contributor for light steps + cheap retries
+# choose/plan/verdict → muse-wonder-1.0 | draft/fix → muse-spark-1.3
+# rank/observe → muse-spark-1.2-contributor | enrich/vision → muse-spark-1.3-contributor | segment → sam-3.1
 ```
 
-Wire path: `.env.local` → `lib/env.ts` `keyFor('meta')` → `lib/muse.ts` / `lib/muse-agent.ts` → Meta Model API chat completions.
+Wire path: `.env.local` → `lib/env.ts` `keyFor('meta')` → `lib/muse-models.ts` `routeMuseModel(task)` → `lib/muse.ts` / `lib/muse-agent.ts` → Meta Model API.
 
 ## How the agent works
 

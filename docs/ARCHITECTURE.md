@@ -94,6 +94,29 @@ Set `META_API_KEY` from **Cursor / Claude Code Muse configuration** (Configure C
 Cursor-configured Muse API keys). Lab reads it only through `lib/env.ts` → `keyFor('meta')`.
 Never commit keys. `.env.example` documents the variable.
 
+## Muse model router (quality vs credit)
+
+Lab does **not** use one default model for every step. `lib/muse-models.ts` `routeMuseModel()`
+picks the best Meta Model API id per task ([docs](https://dev.meta.ai/docs/models)):
+
+**Primary builders** = Muse **Wonder** + **Spark** (Standard) for platform/core agent work.
+**Contributor** = cheaper credit for light steps and cheap retries.
+
+| Task | Model | Tier | Why |
+|---|---|---|---|
+| choose (controller) | `muse-wonder-1.0` | Wonder | Long-horizon tool loop |
+| plan | `muse-wonder-1.0` | Wonder | Hard buildability judgment |
+| draft / notebook | `muse-spark-1.3` | Spark | Coding-tuned primary builder |
+| fix (attempt 0–1) | `muse-spark-1.3` | Spark | Hard fixes |
+| fix (attempt ≥ 2) | `muse-spark-1.3-contributor` | Contributor | Cheap retries |
+| verdict / claims | `muse-wonder-1.0` | Wonder | Strict paper judgment |
+| rank / observe | `muse-spark-1.2-contributor` | Contributor | Classify / light observe |
+| enrich / vision | `muse-spark-1.3-contributor` | Contributor | Light write / crop labels |
+| segment | `sam-3.1` | SAM | Geometry (optional vs Baseten) |
+
+Override any role with `META_MODEL_<ROLE>`. `META_MODEL_FORCE_ALL=1` + `META_MODEL` collapses chat tasks.
+The agent loop injects the live routing table into the controller playbook each turn.
+
 
 ## Access
 
