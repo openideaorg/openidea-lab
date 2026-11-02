@@ -42,6 +42,8 @@ export interface Citation {
   title: string;
   url: string;
   type?: string;
+  doi?: string;
+  year?: number;
 }
 
 export interface LabVerdict {

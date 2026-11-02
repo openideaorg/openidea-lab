@@ -1,7 +1,9 @@
-import { describe, expect, it } from 'vitest';
-import { saveToWorkspaceLink, studioDescription } from '@/lib/handoff';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { openInStudio, saveToWorkspaceLink, studioDescription } from '@/lib/handoff';
 
 describe('hand-off', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
   it('writes a Studio description with the idea, plan and file list, under the cap', () => {
     const d = studioDescription({
       title: 'Soil sensor',
@@ -19,5 +21,40 @@ describe('hand-off', () => {
     const h = saveToWorkspaceLink('Parts list', '# hello');
     expect(h.url).toContain('openidea.world/workspaces?save=1');
     expect(h.url).toContain('title=Parts+list');
+  });
+
+  it('verifies Studio filesWritten round-trip for Transformer prototype files', async () => {
+    const files = [
+      { path: 'reproduce.py', content: 'print("attention")\n' },
+      { path: 'README.md', content: '# Attention Is All You Need\n' },
+    ];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (String(url).includes('/studio/projects/') && !String(url).endsWith('/studio/projects')) {
+          return new Response(JSON.stringify({ project: { id: 'p1' }, files: files.map((f) => ({ path: f.path })) }), {
+            status: 200,
+          });
+        }
+        return new Response(
+          JSON.stringify({
+            project: { id: 'p1' },
+            filesWritten: 2,
+            url: 'https://openidea.world/studio?project=p1',
+          }),
+          { status: 201 },
+        );
+      }),
+    );
+
+    const out = await openInStudio(
+      { title: 'Transformer Lab', idea: 'arXiv:1706.03762', files },
+      'oi_live_test',
+    );
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    expect(out.value.projectId).toBe('p1');
+    expect(out.value.filesWritten).toBe(2);
+    expect(out.value.filesVerified).toBe(true);
   });
 });

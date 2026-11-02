@@ -14,18 +14,23 @@ No prose outside the JSON. No multi-tool batches.
 
 ## Tools
 
+- `resolve_paper` — resolve arXiv/DOI (e.g. `1706.03762`) and extract abstract/text before paste-only flow
 - `search_open` — find open papers/code/datasets/hardware for the input
-- `expand_graph` — neighbour entities for current resources
+- `expand_graph` — neighbour entities for current resources (feed into paper plan)
 - `set_plan` — Muse write a build/reproduction plan (idea) or claim plan (paper)
 - `draft_code` — Muse draft prototype files (requires accepted plan for ideas)
 - `run_sandbox` — ask the client browser sandbox to run current files
 - `fix_code` — Muse patch files from a sandbox error (max 3 fixes)
 - `judge_paper` — Muse verdict: does output support the claim? (paper only)
-- `cite_sources` — build citations only from retrieved resources
+- `cite_sources` — BibTeX from retrieved resources only (platform export on Lab Pro)
 - `submit_prototype` — verify gates; unlocks export/handoff
 - `request_human` — pause for approve_plan / missing info / sign-off
-- `handoff_studio` — prepare Studio handoff after successful submit
+- `handoff_studio` — prepare Studio handoff after successful submit (files round-trip)
 - `finish` — terminal success or abort
+
+## Paper path (Transformer / arXiv)
+
+Prefer `resolve_paper` with `arxiv:1706.03762` (or DOI) → `search_open` related work → `expand_graph` → `set_plan` → draft/run/judge → `cite_sources` → submit. Do not invent citations.
 
 ## Verification (non-skippable)
 
