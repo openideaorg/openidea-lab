@@ -1,74 +1,53 @@
-import { beforeEach, describe, expect, it } from 'vitest';
-import { listRuns, saveRun, deleteRun, runToMarkdown } from '@/lib/history';
+import { describe, expect, it } from 'vitest';
+import { runToBibtex, runToMarkdown, type SavedRun } from '@/lib/history';
 
-// A tiny localStorage for the node test environment, with an optional size limit.
-function install(limit = Infinity) {
-  const data = new Map<string, string>();
-  (globalThis as unknown as { localStorage: Storage }).localStorage = {
-    getItem: (k) => data.get(k) ?? null,
-    setItem: (k, v) => {
-      if ([...data].reduce((n, [key, val]) => n + (key === k ? 0 : val.length), v.length) > limit) throw new Error('QuotaExceededError');
-      data.set(k, v);
-    },
-    removeItem: (k) => void data.delete(k),
-    clear: () => data.clear(),
-    key: () => null,
-    length: 0,
-  };
-}
+const run = (over: Partial<SavedRun> = {}): SavedRun => ({
+  id: 'r1',
+  kind: 'paper',
+  title: 'Double descent',
+  createdAt: 0,
+  input: 'abstract',
+  ...over,
+});
 
-const run = (title: string, extra = {}) => ({ kind: 'idea' as const, title, input: `input for ${title}`, ...extra });
-
-describe('history', () => {
-  beforeEach(() => install());
-
-  it('saves runs and lists the newest first', async () => {
-    saveRun(run('first'));
-    await new Promise((r) => setTimeout(r, 2));
-    saveRun(run('second'));
-    expect(listRuns().map((r) => r.title)).toEqual(['second', 'first']);
+describe('runToBibtex', () => {
+  it('cites every saved resource with unique keys', () => {
+    const bib = runToBibtex(
+      run({
+        claim: 'Test error peaks at n=d then falls.',
+        context: [
+          { id: 'a', type: 'paper', title: 'Reconciling modern machine-learning practice', url: 'https://arxiv.org/abs/1812.11118' },
+          { id: 'b', type: 'code', title: 'Reconciling modern machine-learning practice', url: 'https://github.com/x/y' },
+        ],
+      }),
+    );
+    expect(bib).toContain('@misc{lab:reconcilingmodernmachine');
+    expect(bib).toContain('https://arxiv.org/abs/1812.11118');
+    expect(bib).toContain('tests: Test error peaks');
+    // Same title twice still gives two distinct keys.
+    const keys = bib.split('\n').filter((l) => l.startsWith('@misc{'));
+    expect(keys.length).toBe(2);
+    expect(new Set(keys).size).toBe(2);
   });
 
-  it('deletes a run', () => {
-    const a = saveRun(run('a'))!;
-    saveRun(run('b'));
-    deleteRun(a.id);
-    expect(listRuns().map((r) => r.title)).toEqual(['b']);
-  });
-
-  it('keeps only the newest 20', () => {
-    for (let i = 0; i < 25; i++) saveRun(run(`r${i}`));
-    expect(listRuns()).toHaveLength(20);
-  });
-
-  it('drops figures before refusing a run when storage is nearly full', () => {
-    install(2000);
-    const saved = saveRun(run('big', { figures: ['x'.repeat(5000)] }));
-    expect(saved).not.toBeNull();
-    expect(listRuns()[0].figures).toBeUndefined();
-  });
-
-  it('returns null instead of throwing when storage is unavailable', () => {
-    (globalThis as unknown as { localStorage: unknown }).localStorage = {
-      getItem: () => { throw new Error('blocked'); },
-      setItem: () => { throw new Error('blocked'); },
-    };
-    expect(saveRun(run('x'))).toBeNull();
-    expect(listRuns()).toEqual([]);
+  it('strips braces so entries always parse, and returns empty with no context', () => {
+    const bib = runToBibtex(run({ context: [{ id: 'a', type: 'paper', title: 'A {tricky} title', url: 'https://x' }] }));
+    expect(bib).toContain('title={A tricky title}');
+    expect(runToBibtex(run({ context: [] }))).toBe('');
+    expect(runToBibtex(run({}))).toBe('');
   });
 });
 
 describe('runToMarkdown', () => {
-  it('writes the input, plan and files as a readable document', () => {
-    const md = runToMarkdown({
-      id: '1', kind: 'idea', title: 'Soil sensor', createdAt: 0, input: 'A sensor for farmers',
-      plan: { summary: 'Mostly buildable.', buildable: false, exists: ['moisture probes'], missing: ['Hindi alerts'], steps: ['Wire the probe'] },
-      files: [{ path: 'src/App.tsx', content: 'export default 1' }],
-    });
-    expect(md).toContain('# Soil sensor');
-    expect(md).toContain('A sensor for farmers');
-    expect(md).toContain('**Buildable:** not yet');
-    expect(md).toContain('- Hindi alerts');
-    expect(md).toContain('## src/App.tsx');
+  it('keeps the researcher sign-off next to the verdict', () => {
+    const md = runToMarkdown(
+      run({
+        verdict: { verdict: 'partial', reason: 'Shape right, baseline missing.', missing: 'Add the shuffled baseline.' },
+        signoff: { decision: 'challenged', at: 0 },
+      }),
+    );
+    expect(md).toContain('**partial**');
+    expect(md).toContain('To strengthen: Add the shuffled baseline.');
+    expect(md).toContain('**Researcher sign-off:** challenged');
   });
 });

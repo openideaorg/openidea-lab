@@ -7,7 +7,7 @@
  * Keeps the newest MAX runs and sheds figures first when the browser quota is hit.
  */
 
-import type { LabelledPart, Verdict } from './fireworks';
+import type { LabelledPart, Verdict } from './muse';
 import type { Plan, GeneratedFile } from './muse';
 import type { Resource } from './openidea';
 
@@ -24,8 +24,16 @@ export interface SavedRun {
   files?: GeneratedFile[];
   /** PNG data URLs from a paper run. */
   figures?: string[];
+  /** Paper run: the one testable sentence the notebook checked (paper-ingest handoff). */
+  claim?: string;
   /** Paper run: does the output support the paper's claim? */
   verdict?: Verdict;
+  /**
+   * Paper run: the human's sign-off on the machine verdict. The HITL stamp:
+   * raw Claude chat keeps no record of what the researcher accepted, Lab does,
+   * and it travels into the Studio handoff and the BibTeX note.
+   */
+  signoff?: { decision: 'approved' | 'challenged'; at: number };
   /** Idea run: the Studio project this was sent to, if any. */
   studioUrl?: string;
   /** Photo flow: the written parts list and the named parts. */
@@ -65,6 +73,20 @@ export function deleteRun(id: string): void {
   write(read().filter((r) => r.id !== id));
 }
 
+/**
+ * Patch a saved run in place (keeps its id). The Studio button stamps the
+ * project URL this way; the old delete + re-save minted a new id and broke
+ * the "History → run → Studio link" round trip.
+ */
+export function updateRun(id: string, patch: Partial<SavedRun>): SavedRun | null {
+  const list = read();
+  const i = list.findIndex((r) => r.id === id);
+  if (i < 0) return null;
+  const next = { ...list[i], ...patch, id, createdAt: list[i].createdAt };
+  list[i] = next;
+  return write(list) ? next : null;
+}
+
 /** Returns the saved run, or null when the browser refused (private mode, quota). */
 export function saveRun(run: NewRun): SavedRun | null {
   const saved: SavedRun = { ...run, id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, createdAt: Date.now() };
@@ -88,10 +110,38 @@ export function runToMarkdown(run: SavedRun): string {
     if (run.plan.missing.length) out.push('', '**What is missing**', ...run.plan.missing.map((x) => `- ${x}`));
     if (run.plan.steps.length) out.push('', '**Steps**', ...run.plan.steps.map((x, i) => `${i + 1}. ${x}`));
   }
-  if (run.verdict) out.push('', '## Verdict', '', `**${run.verdict.verdict}** — ${run.verdict.reason}`);
+  if (run.claim) out.push('', '## Claim tested', '', run.claim);
+  if (run.verdict) {
+    out.push('', '## Verdict', '', `**${run.verdict.verdict}** — ${run.verdict.reason}`);
+    if (run.verdict.missing) out.push('', `To strengthen: ${run.verdict.missing}`);
+  }
+  if (run.signoff) out.push('', `**Researcher sign-off:** ${run.signoff.decision} (${new Date(run.signoff.at).toLocaleString()})`);
   if (run.studioUrl) out.push('', `Opened in App Studio: ${run.studioUrl}`);
   if (run.markdown) out.push('', '## Parts list', '', run.markdown);
   if (run.context?.length) out.push('', '## Related open resources', '', ...run.context.map((r) => `- [${r.type}] [${r.title}](${r.url})`));
   for (const f of run.files ?? []) out.push('', `## ${f.path}`, '', '```', f.content, '```');
   return out.join('\n') + '\n';
+}
+
+/**
+ * BibTeX for the open resources a run used — the citing artifact raw Claude
+ * chat does not keep. Pure string building from the saved context, so it
+ * costs nothing and is unit-testable. Returns '' when the run saved no
+ * context, so callers can hide the button instead of copying an empty file.
+ */
+export function runToBibtex(run: Pick<SavedRun, 'kind' | 'claim' | 'context'>): string {
+  const resources = run.context ?? [];
+  if (!resources.length) return '';
+  // BibTeX braces must balance; strip them rather than escape, and keep keys
+  // to alphanumerics so every .bib parser accepts them.
+  const clean = (s: string) => s.replace(/[{}]/g, '').replace(/\s+/g, ' ').trim().slice(0, 300);
+  return resources
+    .map((r, i) => {
+      const slug = clean(r.title).toLowerCase().replace(/[^a-z0-9]+/g, '').slice(0, 24) || `source${i + 1}`;
+      const note = [`OpenIdea Lab ${run.kind} run`, run.claim ? `tests: ${clean(run.claim).slice(0, 200)}` : '', `[${r.type}]`]
+        .filter(Boolean)
+        .join('; ');
+      return `@misc{lab:${slug}${i > 0 ? i + 1 : ''},\n  title={${clean(r.title)}},\n  url={${r.url}},\n  note={${note}}\n}`;
+    })
+    .join('\n\n');
 }

@@ -20,7 +20,13 @@ const Body = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('paper'), text: z.string().min(50), context: z.array(Resource) }),
 ]);
 
-/** Muse Spark: plan an idea and draft its prototype, or draft a paper reproduction. */
+/**
+ * Muse: plan an idea and draft its prototype, or draft a paper reproduction.
+ *
+ * Paper responses include the extracted `claim` — the paper-ingest handoff.
+ * The client uses it for the verdict step instead of the raw pasted text, so
+ * the judgement targets the one sentence the notebook actually tested.
+ */
 export const POST = safe(async (req: Request) => {
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ ok: false, error: 'Bad request' }, { status: 400 });
@@ -37,9 +43,10 @@ export const POST = safe(async (req: Request) => {
       if (!files.ok) return { out: files, status: 502 };
       return { out: { ok: true as const, value: { plan: plan.value, files: files.value } }, status: 200 };
     }
-    const files = await draftNotebook(body.text, body.context);
-    if (!files.ok) return { out: files, status: files.missing ? 424 : 502 };
-    return { out: { ok: true as const, value: { files: files.value } }, status: 200 };
+    // Paper ingest: the draft returns the testable claim alongside the files.
+    const drafted = await draftNotebook(body.text, body.context);
+    if (!drafted.ok) return { out: drafted, status: drafted.missing ? 424 : 502 };
+    return { out: { ok: true as const, value: { files: drafted.value.files, claim: drafted.value.claim } }, status: 200 };
   });
 
   return NextResponse.json({ ...result.out, usage }, { status: result.status });

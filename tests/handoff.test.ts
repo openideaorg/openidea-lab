@@ -9,11 +9,31 @@ describe('hand-off', () => {
       title: 'Soil sensor',
       idea: 'A soil sensor for farmers',
       summary: 'Buildable with an ESP32.',
+      buildable: true,
+      exists: ['ESP32 soil probe'],
+      missing: ['Hindi offline alerts'],
+      steps: ['Search', 'Draft', 'Run', 'Hand off'],
       files: [{ path: 'package.json', content: '{}' }, { path: 'src/App.tsx', content: 'x'.repeat(5000) }],
     });
     expect(d).toContain('Idea: A soil sensor for farmers');
     expect(d).toContain('Plan: Buildable with an ESP32.');
-    expect(d).toContain('package.json, src/App.tsx');
+    expect(d).toContain('Build steps: Search');
+    expect(d).toContain('package.json');
+    expect(d.length).toBeLessThanOrEqual(2000);
+  });
+
+  it('carries a paper run judgement (claim, verdict, sign-off) for Studio', () => {
+    const d = studioDescription({
+      title: 'Double descent',
+      idea: 'Paper reproduction. Test error peaks at n=d then falls.',
+      claim: 'Test error peaks at n=d then falls.',
+      verdictLine: 'partial — shape right, baseline missing.',
+      signoffLine: 'challenged',
+      files: [{ path: 'reproduce.py', content: 'print(1)' }],
+    });
+    expect(d).toContain('Claim tested: Test error peaks');
+    expect(d).toContain('Verdict: partial');
+    expect(d).toContain('Researcher sign-off: challenged');
     expect(d.length).toBeLessThanOrEqual(2000);
   });
 

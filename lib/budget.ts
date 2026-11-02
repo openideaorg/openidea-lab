@@ -24,7 +24,7 @@ export type BudgetProvider = 'meta' | 'fireworks' | 'baseten';
 export const BUDGET_PROVIDERS: BudgetProvider[] = ['meta', 'fireworks', 'baseten'];
 
 export const PROVIDER_LABEL: Record<BudgetProvider, string> = {
-  meta: 'Meta · Muse Spark',
+  meta: 'Meta · Muse',
   fireworks: 'Fireworks',
   baseten: 'Baseten · SAM 3',
 };

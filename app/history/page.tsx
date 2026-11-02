@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { deleteRun, listRuns, runToMarkdown, type SavedRun } from '@/lib/history';
+import { deleteRun, listRuns, runToBibtex, runToMarkdown, type SavedRun } from '@/lib/history';
 import { saveToWorkspaceLink } from '@/lib/handoff';
 
 const ICON = { idea: '💡', paper: '📄', photo: '📷' } as const;
@@ -18,6 +18,7 @@ function download(run: SavedRun) {
 export default function HistoryPage() {
   const [runs, setRuns] = useState<SavedRun[] | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     const list = listRuns();
@@ -38,7 +39,7 @@ export default function HistoryPage() {
           <button
             key={r.id}
             id={`run-${r.id}`}
-            onClick={() => setOpenId(r.id)}
+            onClick={() => { setOpenId(r.id); setCopied(false); }}
             className={`rounded-md border p-3 text-left text-sm ${r.id === openId ? 'border-[var(--accent)] bg-[var(--surface)]' : 'border-[var(--line)] hover:border-[var(--muted)]'}`}
           >
             <span className="mr-1">{ICON[r.kind]}</span>
@@ -55,6 +56,22 @@ export default function HistoryPage() {
             <button id="download-run" onClick={() => download(open)} className="rounded-md border border-[var(--accent)] px-3 py-1.5 text-sm">
               Download .md
             </button>
+            {open.context && open.context.length > 0 && (
+              <button
+                id="copy-bibtex"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(runToBibtex(open));
+                    setCopied(true);
+                  } catch {
+                    setCopied(false);
+                  }
+                }}
+                className="rounded-md border border-[var(--line)] px-3 py-1.5 text-sm"
+              >
+                {copied ? 'BibTeX copied' : 'Copy BibTeX'}
+              </button>
+            )}
             <a
               className="rounded-md border border-[var(--line)] px-3 py-1.5 text-sm"
               href={saveToWorkspaceLink(open.title, runToMarkdown(open)).url}
@@ -87,6 +104,25 @@ export default function HistoryPage() {
               <p>{open.plan.summary}</p>
               <p className="mt-2"><b>Buildable:</b> {open.plan.buildable ? 'yes' : 'not yet'}</p>
               {open.plan.missing.length > 0 && <p className="mt-1"><b>Missing:</b> {open.plan.missing.join('; ')}</p>}
+            </div>
+          )}
+
+          {open.claim && (
+            <div>
+              <h3 className="text-xs uppercase tracking-wide text-[var(--muted)]">Claim tested</h3>
+              <p className="mt-1 text-sm">{open.claim}</p>
+            </div>
+          )}
+
+          {open.verdict && (
+            <div className="rounded-md border border-[var(--line)] bg-[var(--surface)] p-3 text-sm">
+              <p><b>Verdict: {open.verdict.verdict}</b> — {open.verdict.reason}</p>
+              {open.verdict.missing && <p className="mt-1 text-xs text-[var(--muted)]">To strengthen: {open.verdict.missing}</p>}
+              {open.signoff && (
+                <p className="mt-1 text-xs text-[var(--muted)]">
+                  Researcher sign-off: {open.signoff.decision} ({new Date(open.signoff.at).toLocaleString()}).
+                </p>
+              )}
             </div>
           )}
 

@@ -240,9 +240,12 @@ async function draftCode(run: LabRun): Promise<ToolOutcome> {
     run.files = files.value;
     return { observation: JSON.stringify({ ok: true, files: run.files.map((f) => f.path) }) };
   }
-  const files = await draftNotebook(run.input, run.resources);
-  if (!files.ok) return { observation: JSON.stringify(files) };
-  run.files = files.value;
+  const drafted = await draftNotebook(run.input, run.resources);
+  if (!drafted.ok) return { observation: JSON.stringify(drafted) };
+  run.files = drafted.value.files;
+  // The claim is the paper-ingest handoff: judge_paper judges this exact
+  // sentence, not the raw paste (same rule as the one-shot paper flow).
+  run.claim = drafted.value.claim;
   if (!run.plan) {
     run.plan = {
       summary: 'Paper reproduction notebook drafted.',
@@ -292,12 +295,13 @@ async function judgePaper(run: LabRun): Promise<ToolOutcome> {
   const readme = run.files.find((f) => /readme/i.test(f.path))?.content ?? '';
   const output = run.sandbox?.output ?? '';
   if (!output) return { observation: JSON.stringify({ ok: false, error: 'Need a sandbox observation first.' }) };
-  const v = await museVerdict(run.input.slice(0, 6000), readme.slice(0, 6000), output.slice(-6000));
+  const claim = run.claim || run.input.slice(0, 6000);
+  const v = await museVerdict(claim, readme.slice(0, 6000), output.slice(-6000));
   if (!v.ok) return { observation: JSON.stringify(v) };
   const shaped = checkClaimsShape(v.value);
   if (!shaped.ok) return { observation: JSON.stringify({ ok: false, feedback: shaped.feedback }) };
   run.verdict = shaped.verdict;
-  return { observation: JSON.stringify({ ok: true, verdict: run.verdict }) };
+  return { observation: JSON.stringify({ ok: true, verdict: run.verdict, claim }) };
 }
 
 async function citeSources(run: LabRun): Promise<ToolOutcome> {

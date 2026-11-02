@@ -1,14 +1,14 @@
 'use client';
 
 /**
- * Photo → SAM 3 (Baseten) → crops → Fireworks labels → OpenIdea search →
- * Muse Spark parts list. Masks are drawn over the photo on a canvas; crops for
+ * Photo → SAM 3 (Baseten) → crops → Muse labels → OpenIdea search →
+ * Muse parts list. Masks are drawn over the photo on a canvas; crops for
  * labelling are cut client-side so the server never needs the image twice.
  */
 
 import { useRef, useState } from 'react';
 import type { Segment, SegmentResult } from '@/lib/baseten-sam3';
-import type { LabelledPart } from '@/lib/fireworks';
+import type { LabelledPart } from '@/lib/muse';
 import { saveToWorkspaceLink } from '@/lib/handoff';
 import { saveRun } from '@/lib/history';
 import type { UsageEntry } from '@/lib/usage-types';
@@ -55,7 +55,8 @@ export function PhotoFlow() {
     const crops = await drawAndCrop(image, seg.segments);
 
     setStep('labelling');
-    const res = await fetch('/api/lab/segment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ image, crops }) });
+    // The route only needs the crops here; the full photo was already sent to segment.
+    const res = await fetch('/api/lab/segment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ crops }) });
     const body = await res.json();
     addUsage(body.usage);
     if (!body.ok) return fail(body.error, body.missing);
@@ -104,7 +105,7 @@ export function PhotoFlow() {
       <section className="grid content-start gap-3">
         <h1 className="text-2xl font-semibold tracking-tight">Start from a photo</h1>
         <p className="text-sm text-[var(--muted)]">
-          SAM 3 outlines every part. Fireworks names them, openidea.world finds datasheets and listings, Muse Spark writes the parts list.
+          SAM 3 outlines every part. Muse names them, openidea.world finds datasheets and listings, Muse writes the parts list.
         </p>
         <input id="photo-file" type="file" accept="image/*" onChange={onFile} className="text-sm" />
         <button

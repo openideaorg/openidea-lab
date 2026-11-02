@@ -42,14 +42,15 @@ target one figure or table on a small sample, and the UI says so.
 endpoint with scale-to-zero; `baseten/sam3/` is the Truss config. Cold starts are 30–90 s,
 so the UI shows a warming state instead of a spinner.
 
-**One file per provider.** `lib/muse.ts`, `lib/fireworks.ts`, `lib/baseten-sam3.ts`,
+**One file per provider.** `lib/muse.ts`, `lib/baseten-sam3.ts`,
 `lib/openidea.ts`. Each exports plain functions. Nothing else imports an SDK. Swapping a
-provider, or adding Modal later, is one file.
+provider, or adding Modal later, is one file. (`lib/fireworks.ts` remains as a thin
+re-exporting shim from an earlier iteration; no route calls it.)
 
 **The knowledge graph grounds the plan.** The platform keeps a Neo4j graph of
 `(Resource)-[:MENTIONS]->(TECH | ORG | PERSON)`. After search, Lab asks for the one-hop
 neighbourhood of the results (`lib/graph.ts`), draws it (resources left, shared entities
-right, sized by how many results mention them) and hands Muse Spark a short paragraph:
+right, sized by how many results mention them) and hands Muse a short paragraph:
 "technologies these resources share: …". The exists/missing answer then names real nodes.
 If the graph is down or knows none of the results, the flow continues without it.
 
@@ -72,7 +73,7 @@ app/                     Next.js App Router
 lib/
   openidea.ts            platform search client
   graph.ts               knowledge-graph client + prompt helper
-  muse.ts                Muse Spark client (plan/draft)
+  muse.ts                Muse client (plan/draft/rank/fix/label/verdict, tiered)
   muse-agent.ts          Muse tool-choice, rank, fix, verdict
   agent/                 Muse-only handbook loop + tools + verify
   lab-plan.ts            Free vs Lab Pro ≤ $20 packaging
@@ -140,19 +141,23 @@ browser (localStorage) so it is asked for once.
 
 ## Verdict on paper runs
 
-Running is not reproducing. After a paper script runs, `/api/lab/verdict` gives Fireworks the paper's
+Running is not reproducing. After a paper script runs, `/api/lab/verdict` gives Muse (wonder tier) the paper's
 claim, the script's README and its printed output, and gets back `matches | partial | no` with a one-
-sentence reason, shown under the figure. The notebook prompt also asks the script to check its own
-result and print a `CHECK:` line, so the verdict has a number to point at.
+sentence reason, shown under the figure. A `matches` needs two things in the output: a `CHECK: pass` line
+with the measured number, and a null-baseline comparison (shuffled control) the claim beats outside the
+standard error — a script that merely prints weights caps at `partial`, never `matches`. The verdict also
+names the one check that would raise it (`missing`), and the researcher signs off or challenges it; the
+sign-off is saved with the run and travels into the Studio handoff. The claim judged is
+the one the draft step extracted (`claim` in `/api/lab/plan`), not the raw pasted text.
 
 ## Usage tracking
 
 Every provider call is recorded, and each API route returns what its request spent next to its
 result. The flow pages add it up and show a "Usage this run" table.
 
-- **Meta and Fireworks** report tokens in the `usage` field of the chat-completions response;
-  `lib/muse.ts` and `lib/fireworks.ts` pass it to `recordTokens`, labelled by purpose (plan,
-  draft, notebook, parts, rank, fix, label).
+- **Meta** reports tokens in the `usage` field of the chat-completions response
+  (`lib/muse.ts` passes it to `recordTokens`, labelled by purpose and tier:
+  plan, draft, notebook, parts, rank, fix, label, verdict).
 - **Baseten** bills SAM 3 by GPU time, so there are no tokens. `lib/baseten-sam3.ts` records how
   many seconds each call held the endpoint and whether it hit a cold start.
 - **Per-request, not global.** `withUsage` in `lib/usage.ts` uses AsyncLocalStorage, so

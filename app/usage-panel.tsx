@@ -1,8 +1,10 @@
 'use client';
 
 /**
- * What the last run spent, per provider. Meta and Fireworks report tokens;
+ * What the last run spent, per provider. Meta reports tokens (the label names
+ * the tier: plan, draft, notebook, parts, rank, fix, label, verdict);
  * Baseten reports GPU seconds because SAM 3 is billed by time on the endpoint.
+ * The Fireworks row is legacy — Lab Pro routes are Muse-only.
  * Cost columns appear only when prices are set in .env.local.
  */
 
@@ -33,7 +35,7 @@ export function UsagePanel({ entries }: { entries: UsageEntry[] }) {
           <tbody className="tabular-nums">
             {s.meta && (
               <tr className="border-t border-[var(--line)]">
-                <td className="px-3 py-2">Meta · Muse Spark</td>
+                <td className="px-3 py-2">Meta · Muse</td>
                 <td className="px-3 py-2 text-right">{s.meta.calls}</td>
                 <td className="px-3 py-2 text-right">{fmt(s.meta.promptTokens)}</td>
                 <td className="px-3 py-2 text-right">{fmt(s.meta.completionTokens)}</td>

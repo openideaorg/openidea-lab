@@ -18,14 +18,16 @@ from a blank page. Nothing connects the two.
 A web app at https://lab.openidea.world with three entry points:
 
 1. **Idea → prototype.** Lab searches openidea.world for papers, code, datasets and hardware, asks the
-   knowledge graph what connects them, and has Muse Spark judge whether the idea is buildable, what
+   knowledge graph what connects them, and has Muse judge whether the idea is buildable, what
    exists, what is missing, and write a first prototype. The prototype builds and runs in the user's
-   browser; Fireworks fixes it when it fails. The result opens in App Studio for the real build.
-2. **Paper → reproduction.** Muse Spark picks one reproducible result from the paper and writes a
-   Python script that runs in the browser (Pyodide). Fireworks then judges whether the printed output
-   supports the paper's claim, so the figure comes with a verdict, not just "it ran".
+   browser; Muse fixes it when it fails. The result opens in App Studio for the real build.
+2. **Paper → reproduction.** Muse picks one reproducible result from the paper and writes a
+   Python script that runs in the browser (Pyodide). The script checks its own result against a
+   null baseline and prints a `CHECK:` line; Muse then judges whether the printed output
+   supports the paper's claim, so the figure comes with a verdict, not just "it ran". The
+   researcher signs off, and History keeps the claim, verdict and a one-click BibTeX.
 3. **Photo → parts list.** SAM 3, served on Baseten, outlines every component in a photo of hardware.
-   Fireworks names each part; openidea.world finds datasheets and listings; Muse Spark writes the parts
+   Muse names each part; openidea.world finds datasheets and listings; Muse writes the parts
    list.
 
 Every run shows what it spent per provider, and a credit dashboard pauses new runs before the
@@ -35,10 +37,9 @@ hackathon credit is gone.
 
 | Partner | Product | Role | Code |
 |---|---|---|---|
-| Meta | Muse Spark (Meta Model API) | Read, plan, write the first draft | `lib/muse.ts` |
+| Meta | Muse (Meta Model API) | Read, plan, write the first draft (heavy); rank, fix, label, parts list (contributor); verdicts (wonder) | `lib/muse.ts` |
 | Meta | SAM 3 | Segment parts in a photo | `baseten/sam3/`, `lib/baseten-sam3.ts` |
 | Baseten | GPU model hosting | Serve SAM 3 behind an HTTPS endpoint | `baseten/sam3/` |
-| Fireworks | Fast open-model inference | Fix loop, result ranking, part labels, verdicts | `lib/fireworks.ts` |
 
 ## What is not part of the submission
 

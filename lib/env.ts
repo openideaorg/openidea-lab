@@ -37,8 +37,18 @@ export const env = {
   labUrl: process.env.NEXT_PUBLIC_LAB_URL || 'http://localhost:3000',
   openideaUrl: process.env.OPENIDEA_API_URL || 'https://openidea.world/api/v1',
   metaApiUrl: (process.env.META_API_URL || 'https://api.meta.ai/v1').replace(/\/$/, ''),
-  /** @deprecated Prefer per-task ids in lib/muse-models.ts. Kept for dashboards / force-all. */
-  metaModel: process.env.META_MODEL || 'muse-spark-1.3',
+  /**
+   * Lab Pro model tiers (one provider, three prices). Why three: the fix loop
+   * runs up to 3x per build and ranking reads 20 results, so those must be the
+   * cheapest calls; the first draft needs the most reasoning; verdicts need
+   * judgement, not code. Defaults keep a $20 credit to 40+ demo runs.
+   */
+  /** Cheap default: explore, rank, fix, label. */
+  metaModel: process.env.META_MODEL || 'muse-spark-1.3-contributor',
+  /** Heavy coding: plan + first draft. Falls back to metaModel when unset. */
+  metaHeavyModel: process.env.META_MODEL_HEAVY || process.env.META_MODEL || 'muse-spark-1.3',
+  /** Architecture / verdicts: strict judgement calls. Falls back to metaModel. */
+  metaWonderModel: process.env.META_MODEL_WONDER || process.env.META_MODEL || 'muse-wonder-1.0',
   fireworksCodeModel:
     process.env.FIREWORKS_CODE_MODEL || 'accounts/fireworks/models/deepseek-v4p1-flash',
   // Ranking 20 titles does not need the coder model; a small model is many times cheaper.

@@ -23,21 +23,56 @@ export interface StudioExport {
   title: string;
   idea: string;
   summary?: string;
+  buildable?: boolean;
+  exists?: string[];
+  missing?: string[];
+  steps?: string[];
+  /** Paper runs: the testable claim, the verdict line and the researcher's sign-off. */
+  claim?: string;
+  verdictLine?: string;
+  signoffLine?: string;
   files: GeneratedFile[];
+  /** History id of the Lab run, so Studio's builder can link back to the reproduction. */
+  labRunId?: string | null;
 }
 
 export type StudioResult =
   | { ok: true; value: Handoff & { projectId: string; filesWritten: number; filesVerified: boolean } }
   | { ok: false; error: string; status?: number };
 
-/** What Studio reads first. Kept short: the platform may cap description length. */
+/**
+ * What Studio reads first. Kept short: the platform may cap description
+ * length. Carries the plan (steps, what exists/missing) so Studio's first
+ * build starts from Lab's research instead of a blank page, plus the file
+ * tree with sizes so the builder knows what it is receiving.
+ */
 export function studioDescription(x: StudioExport): string {
-  const list = x.files.map((f) => f.path).join(', ');
+  const tree = x.files.map((f) => `${f.path} (${f.content.length} chars)`).join(', ');
+  const steps = x.steps?.length ? `Build steps: ${x.steps.join(' → ')}` : '';
+  const gaps = [
+    x.buildable !== undefined ? `Buildable: ${x.buildable ? 'yes' : 'not yet'}` : '',
+    x.exists?.length ? `Exists: ${x.exists.slice(0, 5).join('; ')}` : '',
+    x.missing?.length ? `Missing: ${x.missing.slice(0, 5).join('; ')}` : '',
+  ].filter(Boolean).join('\n');
+  // Link back to the Lab run so Studio's builder can see the reproduction,
+  // verdict and usage that produced this prototype.
+  const backlink = x.labRunId ? `Lab run: ${labLink(`/history#${x.labRunId}`)}` : '';
+  // Paper runs hand over the judgement too: claim, verdict and sign-off tell
+  // Studio's first build which result is trusted and what would strengthen it.
+  const judgement = [
+    x.claim ? `Claim tested: ${x.claim.trim().slice(0, 300)}` : '',
+    x.verdictLine ? `Verdict: ${x.verdictLine.trim().slice(0, 400)}` : '',
+    x.signoffLine ? `Researcher sign-off: ${x.signoffLine.trim().slice(0, 200)}` : '',
+  ].filter(Boolean).join('\n');
   return [
     `Built from OpenIdea Lab. Idea: ${x.idea.trim()}`,
     x.summary ? `Plan: ${x.summary.trim()}` : '',
-    `Starting files from the Lab prototype: ${list}.`,
+    gaps,
+    steps,
+    judgement,
+    `Starting files from the Lab prototype: ${tree}.`,
     'Continue from this prototype: keep its structure and make it production-ready.',
+    backlink,
   ]
     .filter(Boolean)
     .join('\n\n')

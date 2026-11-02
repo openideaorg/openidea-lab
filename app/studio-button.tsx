@@ -9,8 +9,8 @@
 
 import { useEffect, useState } from 'react';
 import type { Handoff } from '@/lib/handoff';
-import type { GeneratedFile } from '@/lib/muse';
-import { getRun, saveRun, deleteRun } from '@/lib/history';
+import type { GeneratedFile, Plan } from '@/lib/muse';
+import { getRun, updateRun } from '@/lib/history';
 
 const KEY_STORAGE = 'openidea-lab:api-key';
 
@@ -18,13 +18,18 @@ interface Props {
   title: string;
   idea: string;
   summary?: string;
+  plan?: Plan | null;
+  /** Paper runs: the tested claim, verdict line and sign-off for the description. */
+  claim?: string;
+  verdictLine?: string;
+  signoffLine?: string;
   files: GeneratedFile[];
   /** History entry to stamp with the Studio URL once opened. */
   runId: string | null;
   onOpened?: (h: Handoff) => void;
 }
 
-export function StudioButton({ title, idea, summary, files, runId, onOpened }: Props) {
+export function StudioButton({ title, idea, summary, plan, claim, verdictLine, signoffLine, files, runId, onOpened }: Props) {
   const [apiKey, setApiKey] = useState('');
   const [asking, setAsking] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -46,7 +51,23 @@ export function StudioButton({ title, idea, summary, files, runId, onOpened }: P
     const res = await fetch('/api/lab/studio', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title, idea, summary, files, apiKey: apiKey.trim() }),
+      body: JSON.stringify({
+        title,
+        idea,
+        summary,
+        buildable: plan?.buildable,
+        exists: plan?.exists,
+        missing: plan?.missing,
+        steps: plan?.steps,
+        files,
+        claim,
+        verdictLine,
+        signoffLine,
+        // Carried into the Studio description as a link back to this Lab run,
+        // so Studio's builder can see the reproduction and verdict behind it.
+        labRunId: runId,
+        apiKey: apiKey.trim(),
+      }),
     });
     const body = await res.json().catch(() => ({ ok: false, error: `HTTP ${res.status}` }));
     setBusy(false);
@@ -62,13 +83,10 @@ export function StudioButton({ title, idea, summary, files, runId, onOpened }: P
     setOpened(body.value);
     setAsking(false);
     onOpened?.(body.value);
-    // Remember where it went, next to the saved run.
-    if (runId) {
-      const run = getRun(runId);
-      if (run) {
-        deleteRun(runId);
-        saveRun({ ...run, studioUrl: body.value.url });
-      }
+    // Remember where it went, next to the saved run (same id, so the
+    // History → run → Studio link round-trips).
+    if (runId && getRun(runId)) {
+      updateRun(runId, { studioUrl: body.value.url });
     }
     window.open(body.value.url, '_blank', 'noopener');
   }

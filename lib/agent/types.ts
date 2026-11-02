@@ -62,6 +62,8 @@ export interface LabRun {
   plan?: Plan;
   planApproved?: boolean;
   files: GeneratedFile[];
+  /** Testable claim the draft step extracted (paper runs). Judged, not the raw paste. */
+  claim?: string;
   figures?: string[];
   citations: Citation[];
   sandbox?: { ok: boolean; output?: string; error?: string; previewUrl?: string };

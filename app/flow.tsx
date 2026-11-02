@@ -1,21 +1,22 @@
 'use client';
 
 /**
- * The idea and paper flows share one shape: search → Muse Spark drafts →
- * browser sandbox runs → Fireworks fixes → repeat up to MAX_FIXES → hand off.
+ * The idea and paper flows share one shape: search → Muse drafts →
+ * browser sandbox runs → Muse fixes → repeat up to MAX_FIXES → hand off.
  * Only the runner and the prompt differ, so this is one component.
  */
 
 import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import type { Plan, GeneratedFile } from '@/lib/muse';
-import type { Verdict } from '@/lib/fireworks';
+import type { FixAttempt, Plan, GeneratedFile } from '@/lib/muse';
+import type { Verdict } from '@/lib/muse';
 import type { Resource } from '@/lib/openidea';
 import type { RunResult } from '@/lib/runner/types';
 import { describeGraph, type Subgraph } from '@/lib/graph';
 import type { UsageEntry } from '@/lib/usage-types';
+import { errorFingerprint, tail } from '@/lib/runner/types';
 import { saveToWorkspaceLink, type Handoff } from '@/lib/handoff';
-import { saveRun } from '@/lib/history';
+import { runToBibtex, saveRun, updateRun } from '@/lib/history';
 import { GraphView } from './graph-view';
 import { StudioButton } from './studio-button';
 import { UsagePanel } from './usage-panel';
@@ -69,6 +70,9 @@ function Flow({ kind, title, placeholder, hint }: Props) {
   const [run, setRun] = useState<RunResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [verdict, setVerdict] = useState<Verdict | null>(null);
+  const [claim, setClaim] = useState('');
+  const [signoff, setSignoff] = useState<'approved' | 'challenged' | null>(null);
+  const [bibtex, setBibtex] = useState<'idle' | 'done' | 'failed'>('idle');
   const [savedId, setSavedId] = useState<string | null>(null);
 
   const say = (s: string) => setLog((l) => [...l, s]);
@@ -81,12 +85,12 @@ function Flow({ kind, title, placeholder, hint }: Props) {
   }
 
   async function start() {
-    setStep('searching'); setLog([]); setError(null); setPlan(null); setFiles([]); setRun(null); setGraph(null); setUsage([]); setVerdict(null); setSavedId(null);
+    setStep('searching'); setLog([]); setError(null); setPlan(null); setFiles([]); setRun(null); setGraph(null); setUsage([]); setVerdict(null); setClaim(''); setSignoff(null); setBibtex('idle'); setSavedId(null);
 
     const found = await call<Resource[]>('/api/lab/search', { query: input.slice(0, 500), keep: 6 });
     if (!found.ok) return fail(found.error, found.missing);
     setContext(found.value);
-    say(`Found ${found.value.length} relevant open resources.`);
+    say(`Plan: found ${found.value.length} relevant open resources.`);
 
     // The graph is a bonus: if it is down or empty, the flow continues without it.
     let graphText = '';
@@ -100,25 +104,32 @@ function Flow({ kind, title, placeholder, hint }: Props) {
     }
 
     setStep('drafting');
-    const draft = await call<{ plan?: Plan; files: GeneratedFile[] }>(
+    const draft = await call<{ plan?: Plan; files: GeneratedFile[]; claim?: string }>(
       '/api/lab/plan',
       kind === 'idea' ? { kind, idea: input, context: found.value, graph: graphText } : { kind, text: input, context: found.value },
     );
     if (!draft.ok) return fail(draft.error, draft.missing);
     const planLocal = draft.value.plan;
+    // Paper-ingest handoff: the server extracts the one testable claim the
+    // notebook checks. The verdict judges that sentence, not the raw paste.
+    // Falls back to the pasted text when the server predates the claim field.
+    const claimLocal = kind === 'paper' ? (draft.value.claim || input.slice(0, 6000)) : '';
+    if (claimLocal) setClaim(claimLocal);
     if (planLocal) setPlan(planLocal);
     let current = draft.value.files;
     setFiles(current);
-    say(`Muse Spark drafted ${current.length} file(s).`);
+    say(kind === 'idea' ? `Plan: Muse (heavy) drafted ${current.length} file(s) from ${planLocal?.steps.length ?? 0} steps.` : `Plan: Muse (heavy) drafted the reproduction${claimLocal ? ` to test "${claimLocal.slice(0, 120)}"` : ''}.`);
 
     const runner = kind === 'idea'
       ? (await import('@/lib/runner/webcontainer')).webcontainerRunner
       : (await import('@/lib/runner/pyodide')).pyodideRunner;
     if (!runner.available()) return fail(`${runner.name} cannot run in this browser.`);
 
+    let lastFingerprint = '';
+    const fixHistory: FixAttempt[] = [];
     for (let attempt = 0; attempt <= MAX_FIXES; attempt++) {
       setStep('running');
-      say(attempt === 0 ? `Running in ${runner.name}…` : `Re-running after fix ${attempt}…`);
+      say(attempt === 0 ? `Observe: running in ${runner.name}…` : `Observe: re-running after fix ${attempt}…`);
       const result = await runner.run(current, (line) => say(line.trimEnd()));
       setRun(result);
       if (result.ok) {
@@ -130,11 +141,11 @@ function Flow({ kind, title, placeholder, hint }: Props) {
           setStep('judging');
           say('Checking the result against the paper\u2019s claim…');
           const readme = current.find((f) => /readme/i.test(f.path))?.content ?? '';
-          const j = await call<Verdict>('/api/lab/verdict', { claim: input.slice(0, 6000), readme: readme.slice(0, 6000), output: result.output.slice(-6000) });
+          const j = await call<Verdict>('/api/lab/verdict', { claim: claimLocal.slice(0, 6000), readme: readme.slice(0, 6000), output: result.output.slice(-6000) });
           if (j.ok) {
             v = j.value;
             setVerdict(v);
-            say(`Verdict: ${v.verdict}. ${v.reason}`);
+            say(`Verdict (wonder): ${v.verdict}. ${v.reason}`);
           } else {
             say(`Could not get a verdict: ${j.error}`);
           }
@@ -142,6 +153,9 @@ function Flow({ kind, title, placeholder, hint }: Props) {
 
         const saved = saveRun({
           kind, input, plan: planLocal, files: current, figures: result.figures, context: found.value, verdict: v,
+          // Paper-ingest handoff, persisted: History keeps the exact sentence
+          // the verdict judged, not just the verdict.
+          claim: kind === 'paper' ? claimLocal || undefined : undefined,
           title: input.replace(/\s+/g, ' ').trim().slice(0, 70),
         });
         setSavedId(saved?.id ?? null);
@@ -151,10 +165,33 @@ function Flow({ kind, title, placeholder, hint }: Props) {
       }
       if (attempt === MAX_FIXES) break;
 
+      // The same error twice means the last fix changed nothing that matters;
+      // another paid call would likely buy the same patch back, so stop here.
+      const print = errorFingerprint(result.error);
+      if (print && print === lastFingerprint) {
+        say('Same error as the last attempt. Stopping instead of spending another fix.');
+        break;
+      }
+      lastFingerprint = print;
+
       setStep('fixing');
-      say(`Error: ${result.error.split('\n')[0]}. Asking Fireworks to fix…`);
-      const fixed = await call<GeneratedFile[]>('/api/lab/fix', { files: current, error: result.error });
+      say(`Act: error — ${result.error.split('\n')[0]}. Asking Muse (contributor) to fix (attempt ${attempt + 1}/${MAX_FIXES})…`);
+      // The route caps the error at 8000 chars; trim client-side so a long
+      // log fails loudly in the log box, not as a 400 from the route.
+      // History is the observe step: earlier fingerprints keep the model from
+      // repeating a patch that already failed.
+      const fixed = await call<GeneratedFile[]>('/api/lab/fix', {
+        files: current,
+        error: tail(result.error, 8000),
+        attempt: attempt + 1,
+        history: fixHistory.slice(-3),
+      });
       if (!fixed.ok) return fail(fixed.error, fixed.missing);
+      if (JSON.stringify(fixed.value) === JSON.stringify(current)) {
+        say('The fix came back unchanged. Stopping.');
+        break;
+      }
+      fixHistory.push({ fingerprint: print, headline: result.error.split('\n')[0].slice(0, 300) });
       current = fixed.value;
       setFiles(current);
     }
@@ -165,6 +202,32 @@ function Flow({ kind, title, placeholder, hint }: Props) {
     setError(missing ? `${msg}. Set ${missing} in .env.local.` : msg);
     setStep('failed');
     if (/needs a passcode/i.test(msg)) window.location.href = `/enter?next=${encodeURIComponent(window.location.pathname)}`;
+  }
+
+  /** HITL stamp: the researcher approves or challenges the machine verdict. */
+  function stamp(decision: 'approved' | 'challenged') {
+    setSignoff(decision);
+    if (savedId) updateRun(savedId, { signoff: { decision, at: Date.now() } });
+    // When History is unavailable (private mode) the stamp still travels in
+    // the Studio handoff via signoffLine; say only what actually happened.
+    say(
+      decision === 'approved'
+        ? savedId
+          ? 'Signed off. The verdict travels with this run.'
+          : 'Signed off. History is unavailable, so only the Studio handoff carries it.'
+        : 'Challenged. Noted — re-check the CHECK line before trusting this figure.',
+    );
+  }
+
+  async function copyBibtex() {
+    const text = runToBibtex({ kind, claim: claim || undefined, context });
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setBibtex('done');
+    } catch {
+      setBibtex('failed');
+    }
   }
 
   const busy = step !== 'idle' && step !== 'done' && step !== 'failed';
@@ -246,6 +309,24 @@ function Flow({ kind, title, placeholder, hint }: Props) {
           >
             <b>{verdict.verdict === 'matches' ? 'Matches the paper\u2019s claim.' : verdict.verdict === 'partial' ? 'Partly matches the claim.' : 'Does not match the claim.'}</b>{' '}
             {verdict.reason}
+            {verdict.missing && (
+              <span className="mt-1 block text-xs text-[var(--muted)]">To strengthen: {verdict.missing}</span>
+            )}
+            {step === 'done' && !signoff && (
+              <span className="mt-2 flex flex-wrap gap-2">
+                <button id="verdict-approve" onClick={() => stamp('approved')} className="rounded-md border border-[var(--accent)] px-2 py-1 text-xs">
+                  Sign off
+                </button>
+                <button id="verdict-challenge" onClick={() => stamp('challenged')} className="rounded-md border border-[var(--line)] px-2 py-1 text-xs">
+                  Challenge
+                </button>
+              </span>
+            )}
+            {signoff && (
+              <span className="mt-1 block text-xs text-[var(--muted)]">
+                {signoff === 'approved' ? 'You signed off on this verdict.' : 'You challenged this verdict — noted in History.'}
+              </span>
+            )}
             <span className="mt-1 block text-xs text-[var(--muted)]">Judged from the printed output on synthetic data. Not a peer review.</span>
           </div>
         )}
@@ -266,16 +347,23 @@ function Flow({ kind, title, placeholder, hint }: Props) {
               Save to Workspace ↗
             </a>
             <a className="rounded-md border border-[var(--line)] px-3 py-1.5 text-sm" href="/history">History</a>
-            {kind === 'idea' && (
-              <StudioButton
-                title={input.replace(/\s+/g, ' ').trim().slice(0, 70) || 'Lab prototype'}
-                idea={input}
-                summary={plan?.summary}
-                files={files}
-                runId={savedId}
-                onOpened={(h: Handoff) => say(`Opened in App Studio: ${h.url}`)}
-              />
+            {context.length > 0 && (
+              <button id="copy-bibtex" onClick={copyBibtex} className="rounded-md border border-[var(--line)] px-3 py-1.5 text-sm">
+                {bibtex === 'done' ? 'BibTeX copied' : bibtex === 'failed' ? 'Copy failed — see History' : 'Copy BibTeX'}
+              </button>
             )}
+            <StudioButton
+              title={input.replace(/\s+/g, ' ').trim().slice(0, 70) || 'Lab prototype'}
+              idea={kind === 'paper' ? `Paper reproduction. ${claim || input.slice(0, 500)}`.slice(0, 2000) : input}
+              summary={plan?.summary}
+              plan={plan}
+              claim={kind === 'paper' && claim ? claim.slice(0, 1500) : undefined}
+              verdictLine={verdict ? `${verdict.verdict} — ${verdict.reason}${verdict.missing ? ` To strengthen: ${verdict.missing}` : ''}`.slice(0, 500) : undefined}
+              signoffLine={signoff ?? undefined}
+              files={files}
+              runId={savedId}
+              onOpened={(h: Handoff) => say(`Opened in App Studio: ${h.url}`)}
+            />
           </div>
         )}
       </section>
