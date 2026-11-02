@@ -18,6 +18,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               OpenIdea <span className="text-[var(--accent)]">Lab</span>
             </Link>
             <nav className="flex gap-4 text-sm text-[var(--muted)]">
+              <Link href="/agent" className="hover:text-[var(--fg)]">Agent</Link>
               <Link href="/idea" className="hover:text-[var(--fg)]">Idea</Link>
               <Link href="/paper" className="hover:text-[var(--fg)]">Paper</Link>
               <Link href="/photo" className="hover:text-[var(--fg)]">Photo</Link>
@@ -28,7 +29,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         </header>
         <main className="mx-auto max-w-5xl px-4 py-8">{children}</main>
         <footer className="mx-auto max-w-5xl px-4 py-8 text-xs text-[var(--muted)]">
-          Powered by Muse Spark and SAM 3 (Meta), Baseten and Fireworks. Built during the Meta Global AI Developer Hackathon 2026.
+          Muse-only Lab Agent (Meta Muse Spark). SAM 3 on Baseten is optional vision GPU. Lab Pro ≤ $20. Built during the Meta Global AI Developer Hackathon 2026.
           {' '}<a className="underline" href="https://github.com/Sony17/openidea-lab">Source</a>
         </footer>
       </body>

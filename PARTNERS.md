@@ -6,10 +6,16 @@ called, so a judge can verify it in one click.
 
 | Partner | Product | What it does in Lab | Code |
 |---|---|---|---|
-| **Meta** | Muse Spark (Meta Model API) | Reads the paper or idea, plans the reproduction, writes the first version of the code | [`lib/muse.ts`](lib/muse.ts) |
-| **Meta** | SAM 3 | Outlines every part in a hardware photo | [`baseten/sam3/`](baseten/sam3/) (deployment), [`lib/baseten-sam3.ts`](lib/baseten-sam3.ts) (client) |
-| **Baseten** | GPU model hosting | Serves SAM 3 behind an HTTPS endpoint | [`baseten/sam3/`](baseten/sam3/) |
-| **Fireworks** | Fast open-model inference | The fix loop (patches errors the sandbox reports), ranks search results before Muse Spark sees them, names the parts SAM 3 found, and judges whether a paper reproduction's output supports the paper's claim | [`lib/fireworks.ts`](lib/fireworks.ts) |
+| **Meta** | Muse Wonder + Muse Spark (+ Contributor) | **Primary LLM path**: Wonder/Spark for plan, draft, hard fix, verdict, controller; Spark Contributor for rank/observe/cheap retries. Router in [`lib/muse-models.ts`](lib/muse-models.ts). Key via `META_API_KEY` (Cursor / Claude Code). | [`lib/muse.ts`](lib/muse.ts), [`lib/muse-agent.ts`](lib/muse-agent.ts), [`lib/agent/`](lib/agent/) |
+| **Meta** | SAM 3.1 (`sam-3.1`) | Optional Meta API segmentation (alongside Baseten SAM) | [`lib/muse-models.ts`](lib/muse-models.ts) |
+| **Meta** | SAM 3 | Optional vision: outlines parts in a hardware photo (secondary to Muse reasoning) | [`baseten/sam3/`](baseten/sam3/) (deployment), [`lib/baseten-sam3.ts`](lib/baseten-sam3.ts) (client) |
+| **Baseten** | GPU model hosting | Optional SAM 3 HTTPS endpoint (Moonstar GPU credit; not LLM) | [`baseten/sam3/`](baseten/sam3/) |
+| **Fireworks** | Fast open-model inference | **Legacy one-shot flows only** — not used by the Muse-only agent loop | [`lib/fireworks.ts`](lib/fireworks.ts) |
+
+## Product packaging
+
+- **Free** teaser: few Lab Agent runs, no durable export fence unlocks.
+- **Lab Pro ≤ $20**: paid SKU for metered runs, replay, citations export, HITL (`lib/lab-plan.ts`).
 
 ## What is NOT part of the submission
 
@@ -21,7 +27,5 @@ called, so a judge can verify it in one click.
 
 ## Modal
 
-Modal was in the original design as the code sandbox and SAM 3 GPU. Credits were not
-available during the event, so SAM 3 moved to Baseten and the sandboxes run in the browser
-(WebContainer for JavaScript, Pyodide for Python). If Modal becomes available, it replaces
-only the browser runners; see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+Modal remains optional non-LLM infra (heavy sandbox). Browser WebContainer / Pyodide are the
+default sandboxes. LLM agent reasoning stays Muse-only.

@@ -14,29 +14,23 @@ Workspaces by deep link. It contains no platform code.
                                         │ raw results
                                         ▼
                  ┌──────────────────────────────────────────────┐
-                 │ Fireworks: rank and trim to what matters     │
+                 │ Muse Agent loop (choose one tool / turn)     │
+                 │ search · graph · plan · draft · fix · judge  │
                  └──────────────────────┬───────────────────────┘
-                                        │ context
-                                        ▼
-                 ┌──────────────────────────────────────────────┐
-                 │ Muse Spark: read · plan · write first draft  │
-                 └──────────────────────┬───────────────────────┘
-                                        │ files
+                                        │ files + console
           ┌─────────────────────────────┼─────────────────────────────┐
           ▼                             ▼                             ▼
-  💡 Idea                       📄 Paper                      📷 Photo
-  WebContainer runs the app     Pyodide runs the notebook     SAM 3 on Baseten outlines parts
-  errors ─► Fireworks fixes     errors ─► Fireworks fixes     Fireworks labels + parts JSON
-  ─► "Open in Studio"           ─► "Save to Workspace"        Muse Spark adds datasheets/prices
-                                                              ─► "Save to Workspace"
+  💡 Idea                       📄 Paper                      📷 Photo (optional)
+  WebContainer (client)         Pyodide (client)              SAM 3 on Baseten (GPU only)
+  Muse fixes on error           Muse verdict + HITL sign-off  secondary to Muse reasoning
+  ─► Lab Pro export / Studio    ─► citations + sign-off
 ```
 
 ## Why each piece is where it is
 
-**Muse Spark writes the first draft; Fireworks fixes it.** The first draft needs the most
-reasoning: read a paper, decide which result is reproducible on small data, pick a plan. The
-fix loop runs several times per build and needs speed and low cost more than depth. Two models,
-two jobs.
+**Muse Spark is the only LLM on the product path.** The Lab Agent (`lib/agent/`, `/agent`) uses
+Muse for tool choice, plan, draft, fix, rank, and verdict. Fireworks remains only on the legacy
+one-shot `flow.tsx` demo. Optional Baseten SAM 3 is vision GPU, not reasoning.
 
 **Sandboxes run in the browser.** Modal was the original sandbox and its credits were not
 available. A WebContainer (JavaScript) and Pyodide (Python) run on the user's machine, cost
@@ -78,17 +72,51 @@ app/                     Next.js App Router
 lib/
   openidea.ts            platform search client
   graph.ts               knowledge-graph client + prompt helper
-  muse.ts                Muse Spark client
-  fireworks.ts           fix loop, ranking, structured extraction
-  baseten-sam3.ts        SAM 3 client
+  muse.ts                Muse Spark client (plan/draft)
+  muse-agent.ts          Muse tool-choice, rank, fix, verdict
+  agent/                 Muse-only handbook loop + tools + verify
+  lab-plan.ts            Free vs Lab Pro ≤ $20 packaging
+  fireworks.ts           legacy one-shot helpers (optional)
+  baseten-sam3.ts        optional SAM 3 client
   runner/
     webcontainer.ts      JS sandbox
     pyodide.ts           Python sandbox
   handoff.ts             links back to the platform
+app/agent/               agent console UI (plan/act/observe)
 baseten/sam3/            Truss deployment for SAM 3
 demo/                    recorded inputs and outputs for each flow
 docs/                    this file and friends
 ```
+
+## Muse API key
+
+Set `META_API_KEY` from **Cursor / Claude Code Muse configuration** (Configure Claude Code or
+Cursor-configured Muse API keys). Lab reads it only through `lib/env.ts` → `keyFor('meta')`.
+Never commit keys. `.env.example` documents the variable.
+
+## Muse model router (quality vs credit)
+
+Lab does **not** use one default model for every step. `lib/muse-models.ts` `routeMuseModel()`
+picks the best Meta Model API id per task ([docs](https://dev.meta.ai/docs/models)):
+
+**Primary builders** = Muse **Wonder** + **Spark** (Standard) for platform/core agent work.
+**Contributor** = cheaper credit for light steps and cheap retries.
+
+| Task | Model | Tier | Why |
+|---|---|---|---|
+| choose (controller) | `muse-wonder-1.0` | Wonder | Long-horizon tool loop |
+| plan | `muse-wonder-1.0` | Wonder | Hard buildability judgment |
+| draft / notebook | `muse-spark-1.3` | Spark | Coding-tuned primary builder |
+| fix (attempt 0–1) | `muse-spark-1.3` | Spark | Hard fixes |
+| fix (attempt ≥ 2) | `muse-spark-1.3-contributor` | Contributor | Cheap retries |
+| verdict / claims | `muse-wonder-1.0` | Wonder | Strict paper judgment |
+| rank / observe | `muse-spark-1.2-contributor` | Contributor | Classify / light observe |
+| enrich / vision | `muse-spark-1.3-contributor` | Contributor | Light write / crop labels |
+| segment | `sam-3.1` | SAM | Geometry (optional vs Baseten) |
+
+Override any role with `META_MODEL_<ROLE>`. `META_MODEL_FORCE_ALL=1` + `META_MODEL` collapses chat tasks.
+The agent loop injects the live routing table into the controller playbook each turn.
+
 
 ## Access
 
