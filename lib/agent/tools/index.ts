@@ -6,7 +6,14 @@
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { search } from '../../openidea';
+import {
+  search,
+  resolvePaper,
+  extractPaper,
+  exportCitations,
+  detectPaperId,
+  type Resource,
+} from '../../openidea';
 import { neighbourhood, describeGraph } from '../../graph';
 import { draftNotebook, draftPrototype, planIdea, type Plan } from '../../muse';
 import { museFix, museRank, museVerdict } from '../../muse-agent';
@@ -17,6 +24,7 @@ import { checkClaimsShape } from '../verify/claims';
 import type { LabRun, ToolCall } from '../types';
 
 export const TOOL_NAMES = [
+  'resolve_paper',
   'search_open',
   'expand_graph',
   'set_plan',
@@ -35,6 +43,7 @@ export type ToolName = (typeof TOOL_NAMES)[number];
 
 export function definitions(): { name: string; description: string }[] {
   return [
+    { name: 'resolve_paper', description: 'Resolve arXiv/DOI and extract abstract/text (e.g. 1706.03762)' },
     { name: 'search_open', description: 'Search openidea.world and Muse-rank results' },
     { name: 'expand_graph', description: 'Expand knowledge-graph neighbourhood for resources' },
     { name: 'set_plan', description: 'Muse write a structural plan (verified)' },
@@ -42,7 +51,7 @@ export function definitions(): { name: string; description: string }[] {
     { name: 'run_sandbox', description: 'Pause for client browser sandbox (WebContainer/Pyodide)' },
     { name: 'fix_code', description: 'Muse patch files from last sandbox error (max 3)' },
     { name: 'judge_paper', description: 'Muse verdict: output vs paper claim' },
-    { name: 'cite_sources', description: 'Build citations from retrieved resources only' },
+    { name: 'cite_sources', description: 'BibTeX from retrieved resources (platform export on Pro)' },
     { name: 'submit_prototype', description: 'Verification gate before export/handoff' },
     { name: 'request_human', description: 'Pause for approve_plan / missing info / sign-off' },
     { name: 'handoff_studio', description: 'Mark ready for Studio handoff after submit' },
@@ -64,6 +73,8 @@ export async function runTool(run: LabRun, call: ToolCall): Promise<ToolOutcome>
     return { observation: JSON.stringify({ error: `Unknown tool ${call.name}. Pick one of: ${TOOL_NAMES.join(', ')}` }) };
   }
   switch (name) {
+    case 'resolve_paper':
+      return resolvePaperTool(run, call.args);
     case 'search_open':
       return searchOpen(run, call.args);
     case 'expand_graph':
@@ -91,16 +102,77 @@ export async function runTool(run: LabRun, call: ToolCall): Promise<ToolOutcome>
   }
 }
 
+async function resolvePaperTool(run: LabRun, args: Record<string, unknown>): Promise<ToolOutcome> {
+  const detected = detectPaperId(run.input);
+  const input = {
+    arxiv: typeof args.arxiv === 'string' ? args.arxiv : detected?.arxiv,
+    doi: typeof args.doi === 'string' ? args.doi : detected?.doi,
+    url: typeof args.url === 'string' ? args.url : undefined,
+    mode: args.mode === 'pdf' ? ('pdf' as const) : ('abstract' as const),
+  };
+  if (!input.arxiv && !input.doi && !input.url) {
+    return {
+      observation: JSON.stringify({
+        ok: false,
+        error: 'Provide arxiv, doi, or url (e.g. arxiv:1706.03762).',
+      }),
+    };
+  }
+
+  const extracted = await extractPaper(input);
+  if (!extracted.ok) {
+    // Fall back to metadata-only resolve so search can still proceed.
+    const resolved = await resolvePaper(input);
+    if (!resolved.ok) return { observation: JSON.stringify(resolved) };
+    upsertResource(run, resolved.value.resource);
+    return {
+      observation: JSON.stringify({
+        ok: true,
+        resource: brief(resolved.value.resource),
+        pdfUrl: resolved.value.pdfUrl,
+        textChars: 0,
+        note: 'extract failed; metadata only',
+        extractError: extracted.error,
+      }),
+    };
+  }
+
+  upsertResource(run, extracted.value.resource);
+  // Prefer extracted text as the paper-run input when the user only pasted an id.
+  if (extracted.value.text && (run.input.length < 200 || detectPaperId(run.input))) {
+    run.input = [
+      extracted.value.resource.title,
+      extracted.value.resource.authors?.join(', '),
+      extracted.value.text,
+    ]
+      .filter(Boolean)
+      .join('\n\n')
+      .slice(0, 60_000);
+  }
+
+  return {
+    observation: JSON.stringify({
+      ok: true,
+      resource: brief(extracted.value.resource),
+      pdfUrl: extracted.value.pdfUrl,
+      source: extracted.value.source,
+      truncated: extracted.value.truncated,
+      textChars: extracted.value.text.length,
+      sections: extracted.value.sections.map((s) => s.heading),
+    }),
+  };
+}
+
 async function searchOpen(run: LabRun, args: Record<string, unknown>): Promise<ToolOutcome> {
   const q = String(args.query ?? run.input).slice(0, 500);
   const found = await search(q, { limit: 20 });
   if (!found.ok) return { observation: JSON.stringify(found) };
   const ranked = await museRank(q, found.value, 6);
   if (!ranked.ok) {
-    run.resources = found.value.slice(0, 6);
-    return { observation: JSON.stringify({ ok: true, resources: run.resources, note: 'rank skipped', rankError: ranked.error }) };
+    run.resources = mergeResources(run.resources, found.value.slice(0, 6));
+    return { observation: JSON.stringify({ ok: true, resources: run.resources.map(brief), note: 'rank skipped', rankError: ranked.error }) };
   }
-  run.resources = ranked.value;
+  run.resources = mergeResources(run.resources, ranked.value);
   return { observation: JSON.stringify({ ok: true, count: run.resources.length, resources: run.resources.map(brief) }) };
 }
 
@@ -121,12 +193,22 @@ async function expandGraph(run: LabRun): Promise<ToolOutcome> {
 
 async function setPlan(run: LabRun): Promise<ToolOutcome> {
   if (run.kind === 'paper') {
+    const graphNote = run.graphText ? ` Graph grounding: ${run.graphText.slice(0, 500)}` : '';
     const plan: Plan = {
-      summary: `Reproduce one key claim from the paper on small synthetic data.`,
+      summary: `Reproduce one key claim from the paper on small synthetic data.${graphNote}`,
       buildable: true,
-      exists: run.resources.slice(0, 3).map((r) => r.title),
-      missing: ['Confirmed figure/table id from full PDF if paste is truncated'],
-      steps: ['Identify one claim', 'Draft Pyodide script with CHECK line', 'Run + judge_paper', 'Cite + submit'],
+      exists: [
+        ...run.resources.slice(0, 3).map((r) => r.title),
+        ...(run.graphText ? ['Knowledge-graph neighbourhood loaded'] : []),
+      ],
+      missing: run.input.length > 500 ? [] : ['Paper abstract/text via resolve_paper if only an id was given'],
+      steps: [
+        'resolve_paper if starting from arXiv/DOI',
+        'Identify one claim',
+        'Draft Pyodide script with CHECK line',
+        'Run + judge_paper',
+        'Cite + submit',
+      ],
     };
     const check = checkPlan(plan);
     if (!check.ok) return { observation: JSON.stringify({ ok: false, refused: true, feedback: check.feedback }) };
@@ -218,13 +300,49 @@ async function judgePaper(run: LabRun): Promise<ToolOutcome> {
   return { observation: JSON.stringify({ ok: true, verdict: run.verdict }) };
 }
 
-function citeSources(run: LabRun): ToolOutcome {
+async function citeSources(run: LabRun): Promise<ToolOutcome> {
   if (!run.resources.length) return { observation: JSON.stringify({ ok: false, error: 'No resources to cite.' }) };
-  run.citations = run.resources.map((r) => ({ title: r.title, url: r.url, type: r.type }));
-  const bib = run.citations
-    .map((c, i) => `@misc{lab${i},\n  title={${escapeBib(c.title)}},\n  url={${c.url}},\n  note={Open Idea Lab retrieval}\n}`)
-    .join('\n\n');
-  return { observation: JSON.stringify({ ok: true, count: run.citations.length, bibtex: bib }) };
+  run.citations = run.resources.map((r) => ({
+    title: r.title,
+    url: r.url,
+    type: r.type,
+    doi: r.doi,
+    year: r.year,
+  }));
+
+  const plan = getLabPlan(run.planTier);
+  if (plan.citationsExport) {
+    const exported = await exportCitations(run.resources, 'bibtex');
+    if (exported.ok) {
+      return {
+        observation: JSON.stringify({
+          ok: true,
+          count: run.citations.length,
+          bibtex: exported.value,
+          source: 'platform',
+        }),
+      };
+    }
+    // Fall through to local BibTeX if platform plan blocks export (402) or is down.
+  } else {
+    return {
+      observation: JSON.stringify({
+        ok: false,
+        error: freeFenceMessage('citationsExport'),
+        preview: localBibtex(run.resources).slice(0, 400),
+      }),
+    };
+  }
+
+  const bib = localBibtex(run.resources);
+  return {
+    observation: JSON.stringify({
+      ok: true,
+      count: run.citations.length,
+      bibtex: bib,
+      source: 'local_fallback',
+    }),
+  };
 }
 
 function submitPrototype(run: LabRun): ToolOutcome {
@@ -302,12 +420,57 @@ function finish(run: LabRun, args: Record<string, unknown>): ToolOutcome {
   return { observation: JSON.stringify({ ok: true, status: 'done' }), terminal: true };
 }
 
-function brief(r: { id: string; type: string; title: string; url: string }) {
-  return { id: r.id, type: r.type, title: r.title, url: r.url };
+function brief(r: Resource) {
+  return {
+    id: r.id,
+    type: r.type,
+    title: r.title,
+    url: r.url,
+    doi: r.doi,
+    year: r.year,
+    venue: r.venue,
+    snippet: r.snippet?.slice(0, 160),
+    citationCount: r.citationCount,
+  };
+}
+
+function upsertResource(run: LabRun, resource: Resource) {
+  const idx = run.resources.findIndex((r) => r.id === resource.id || r.url === resource.url);
+  if (idx >= 0) run.resources[idx] = { ...run.resources[idx], ...resource };
+  else run.resources = [resource, ...run.resources].slice(0, 12);
+}
+
+function mergeResources(existing: Resource[], incoming: Resource[]): Resource[] {
+  const out = [...existing];
+  for (const r of incoming) {
+    const idx = out.findIndex((x) => x.id === r.id || x.url === r.url);
+    if (idx >= 0) out[idx] = { ...out[idx], ...r };
+    else out.push(r);
+  }
+  return out.slice(0, 12);
 }
 
 function escapeBib(s: string): string {
   return s.replace(/[{}]/g, '');
+}
+
+function localBibtex(resources: Resource[]): string {
+  return resources
+    .map((r, i) => {
+      const fields = [
+        `  title={${escapeBib(r.title)}}`,
+        r.authors?.length ? `  author={${escapeBib(r.authors.join(' and '))}}` : '',
+        r.year ? `  year={${r.year}}` : '',
+        r.doi ? `  doi={${escapeBib(r.doi)}}` : '',
+        `  url={${r.url}}`,
+        r.venue ? `  journal={${escapeBib(r.venue)}}` : '',
+        `  note={Open Idea Lab retrieval}`,
+      ]
+        .filter(Boolean)
+        .join(',\n');
+      return `@${r.type === 'paper' ? 'article' : 'misc'}{lab${i},\n${fields}\n}`;
+    })
+    .join('\n\n');
 }
 
 /** Playbook text shipped next to this module. */
