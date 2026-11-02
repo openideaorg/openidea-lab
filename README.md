@@ -2,83 +2,74 @@
 
 **https://lab.openidea.world**
 
-OpenIdea Lab turns an idea, a research paper, or a photo of hardware into a working prototype, powered by Muse Spark and SAM 3.
+OpenIdea Lab turns an idea or research paper into a **verified, citable prototype** with a Muse-only agent loop (plan / act / observe), HITL sign-off, and Studio handoff.
 
 > **Built during the Meta Global AI Developer Hackathon (Oct 26 – Nov 4, 2026), Startup track.**
 > Everything in this repository was written during the event.
-> It calls OpenIdea's search API ([openidea.world](https://openidea.world)), which existed before the hackathon and is **not** part of this submission. See [PARTNERS.md](PARTNERS.md) for exactly what each partner's product does here.
+> It calls OpenIdea's search API ([openidea.world](https://openidea.world)), which existed before the hackathon and is **not** part of this submission. See [PARTNERS.md](PARTNERS.md).
 
-## What it does
+## Product
 
-| Input | Output |
-|---|---|
-| 💡 An idea | Is it buildable, what already exists, what's missing, plus starter code that runs |
-| 📄 A research paper | A notebook that reproduces the paper's key result |
-| 📷 A photo of hardware | Every part outlined, with a parts list, prices and datasheets |
+| SKU | Price | What you get |
+|---|---|---|
+| **Free** | $0 | Teaser Lab Agent runs (metered), live console |
+| **Lab Pro** | **≤ $20/mo** | More runs, durable replay fence, BibTeX export, HITL, Studio files handoff |
 
-Each result can be sent to the Open Idea platform: ideas open in **App Studio**, papers and parts lists save to a **Workspace**. Finished runs are kept in **History** (in your browser) and can be downloaded as Markdown.
+Primary UI: **`/agent`** — Muse chooses one tool per turn. Legacy `/idea` and `/paper` one-shot pipelines remain as demos. Photo / SAM 3 on Baseten is optional vision GPU, not LLM reasoning.
 
-Paper reproductions come with a **verdict**: Fireworks reads the printed output and says whether it supports the paper's claim, so "it runs" is never mistaken for "it reproduces".
+## Muse API key (Cursor / Claude Code)
 
-Every run shows what it spent per provider. A **credit dashboard** at `/usage` tracks spend against the credit you were given and pauses new runs before it runs out. A shared **passcode** and a per-visitor **rate limit** protect a public deployment.
+Lab does **not** invent API keys. The Muse-only path reads:
 
-## How it works
+```bash
+META_API_KEY=…          # from Configure Claude Code / Cursor-configured Muse API keys
+META_API_URL=https://api.meta.ai/v1
+META_MODEL=muse-spark-1.3
+```
+
+Wire path: `.env.local` → `lib/env.ts` `keyFor('meta')` → `lib/muse.ts` / `lib/muse-agent.ts` → Meta Model API chat completions.
+
+## How the agent works
 
 ```
-idea / paper / photo
-        │
-        ▼
-OpenIdea search (existing) ── papers, code, datasets, models, hardware
-        │
-        ▼
-Fireworks ── ranks and trims the results
-        │
-        ▼
-Muse Spark (Meta) ── reads, plans, writes code
-        │
-        ▼
-in-browser sandbox ── runs the code; errors go to Fireworks to fix
-        │
-        ▼
-working prototype ──▶ Open in Studio / Save to Workspace
-
-photo ──▶ SAM 3 on Baseten ──▶ outlined parts ──▶ Fireworks + Muse Spark ──▶ parts list
+idea / paper
+   │
+   ▼
+Muse agent loop (one tool / turn)
+  search_open · expand_graph · set_plan · draft_code
+  run_sandbox (browser) · fix_code · judge_paper
+  cite_sources · submit_prototype · request_human · finish
+   │
+   ▼
+console (plan / act / observe) + usage (Meta) → export / Studio
 ```
 
 Details in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Stack
 
-- **Muse Spark** (Meta Model API): reasoning, paper reading, first-draft code
-- **SAM 3** (Meta) on **Baseten**: part segmentation in hardware photos
-- **Fireworks**: fast fix loop, result ranking, structured extraction
-- **WebContainer** and **Pyodide**: sandboxes that run in the browser
+- **Muse Spark** (Meta Model API): **only** LLM for agent reasoning
+- **WebContainer** / **Pyodide**: browser sandboxes
+- **SAM 3** on **Baseten**: optional photo segmentation
+- **Fireworks**: legacy demo path only (not the Lab Agent)
 - **Next.js 15**, TypeScript, Tailwind
 
 ## Run it locally
 
 ```bash
-git clone https://github.com/Sony17/openidea-lab
+git clone https://github.com/openideaorg/openidea-lab
 cd openidea-lab
 pnpm install
-cp .env.example .env.local
+cp .env.example .env.local   # set META_API_KEY from Cursor/Claude Code Muse keys
 pnpm dev
 ```
 
-Every provider key is optional. With none set, the UI loads and each flow tells you which key it needs. `.env.example` documents every variable, including prices and credit for the dashboard, and `LAB_PASSCODE` for a shared deployment.
+Open `/agent`. Optional: `LAB_PLAN=pro` and `LAB_PRO_PRICE_USD=20` (hard-capped at 20).
 
 ## Contributing
 
-Issues and pull requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) first; during the hackathon window only `hackathon`-labelled work is merged. Security reports go to the address in [SECURITY.md](SECURITY.md).
-
-## Related
-
-- [Sony17/Ecosyz](https://github.com/Sony17/Ecosyz): the Open Idea platform (search, App Studio, Workspaces) that Lab extends.
+See [CONTRIBUTING.md](CONTRIBUTING.md). Security: [SECURITY.md](SECURITY.md).
 
 ## Licence
 
 [MIT](LICENSE).
-
-## Status
-
-🚧 Work in progress during the hackathon.

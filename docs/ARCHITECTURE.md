@@ -14,29 +14,23 @@ Workspaces by deep link. It contains no platform code.
                                         │ raw results
                                         ▼
                  ┌──────────────────────────────────────────────┐
-                 │ Fireworks: rank and trim to what matters     │
+                 │ Muse Agent loop (choose one tool / turn)     │
+                 │ search · graph · plan · draft · fix · judge  │
                  └──────────────────────┬───────────────────────┘
-                                        │ context
-                                        ▼
-                 ┌──────────────────────────────────────────────┐
-                 │ Muse Spark: read · plan · write first draft  │
-                 └──────────────────────┬───────────────────────┘
-                                        │ files
+                                        │ files + console
           ┌─────────────────────────────┼─────────────────────────────┐
           ▼                             ▼                             ▼
-  💡 Idea                       📄 Paper                      📷 Photo
-  WebContainer runs the app     Pyodide runs the notebook     SAM 3 on Baseten outlines parts
-  errors ─► Fireworks fixes     errors ─► Fireworks fixes     Fireworks labels + parts JSON
-  ─► "Open in Studio"           ─► "Save to Workspace"        Muse Spark adds datasheets/prices
-                                                              ─► "Save to Workspace"
+  💡 Idea                       📄 Paper                      📷 Photo (optional)
+  WebContainer (client)         Pyodide (client)              SAM 3 on Baseten (GPU only)
+  Muse fixes on error           Muse verdict + HITL sign-off  secondary to Muse reasoning
+  ─► Lab Pro export / Studio    ─► citations + sign-off
 ```
 
 ## Why each piece is where it is
 
-**Muse Spark writes the first draft; Fireworks fixes it.** The first draft needs the most
-reasoning: read a paper, decide which result is reproducible on small data, pick a plan. The
-fix loop runs several times per build and needs speed and low cost more than depth. Two models,
-two jobs.
+**Muse Spark is the only LLM on the product path.** The Lab Agent (`lib/agent/`, `/agent`) uses
+Muse for tool choice, plan, draft, fix, rank, and verdict. Fireworks remains only on the legacy
+one-shot `flow.tsx` demo. Optional Baseten SAM 3 is vision GPU, not reasoning.
 
 **Sandboxes run in the browser.** Modal was the original sandbox and its credits were not
 available. A WebContainer (JavaScript) and Pyodide (Python) run on the user's machine, cost
@@ -78,17 +72,28 @@ app/                     Next.js App Router
 lib/
   openidea.ts            platform search client
   graph.ts               knowledge-graph client + prompt helper
-  muse.ts                Muse Spark client
-  fireworks.ts           fix loop, ranking, structured extraction
-  baseten-sam3.ts        SAM 3 client
+  muse.ts                Muse Spark client (plan/draft)
+  muse-agent.ts          Muse tool-choice, rank, fix, verdict
+  agent/                 Muse-only handbook loop + tools + verify
+  lab-plan.ts            Free vs Lab Pro ≤ $20 packaging
+  fireworks.ts           legacy one-shot helpers (optional)
+  baseten-sam3.ts        optional SAM 3 client
   runner/
     webcontainer.ts      JS sandbox
     pyodide.ts           Python sandbox
   handoff.ts             links back to the platform
+app/agent/               agent console UI (plan/act/observe)
 baseten/sam3/            Truss deployment for SAM 3
 demo/                    recorded inputs and outputs for each flow
 docs/                    this file and friends
 ```
+
+## Muse API key
+
+Set `META_API_KEY` from **Cursor / Claude Code Muse configuration** (Configure Claude Code or
+Cursor-configured Muse API keys). Lab reads it only through `lib/env.ts` → `keyFor('meta')`.
+Never commit keys. `.env.example` documents the variable.
+
 
 ## Access
 
