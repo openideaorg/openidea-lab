@@ -67,8 +67,17 @@ function sumCost(list: { costUsd?: number }[]): number | undefined {
   return list.reduce((s, e) => s + (e.costUsd as number), 0);
 }
 
-export function summarise(entries: UsageEntry[]): UsageSummary {
-  const tokens = (p: TokenProvider): TokenTotals | undefined => {
+/**
+ * How many runs at this per-run cost fit in a budget (e.g. the Lab Pro ≤$20
+ * credit). Returns undefined when the run cost is unknown or zero, so callers
+ * fall back to the plan quota instead of printing nonsense.
+ */
+export function runsPerBudget(runCostUsd: number | undefined, budgetUsd: number): number | undefined {
+  if (runCostUsd === undefined || !Number.isFinite(runCostUsd) || runCostUsd <= 0 || budgetUsd <= 0) return undefined;
+  return Math.max(1, Math.floor(budgetUsd / runCostUsd));
+}
+
+export function summarise(entries: UsageEntry[]): UsageSummary {  const tokens = (p: TokenProvider): TokenTotals | undefined => {
     const list = entries.filter((e): e is TokenEntry => e.kind === 'tokens' && e.provider === p);
     if (!list.length) return undefined;
     return {

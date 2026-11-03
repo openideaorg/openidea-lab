@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { summarise, type UsageEntry } from '@/lib/usage-types';
+import { runsPerBudget, summarise, type UsageEntry } from '@/lib/usage-types';
 import { recordGpu, recordTokens, withUsage } from '@/lib/usage';
 
 const saved = { ...process.env };
@@ -29,9 +29,30 @@ describe('summarise', () => {
     expect(s.baseten).toMatchObject({ calls: 2, seconds: 42.5, warmups: 1 });
   });
 
+  it('groups Baseten LLM fallback tokens separately from SAM GPU time', () => {
+    const s = summarise([
+      { kind: 'tokens', provider: 'baseten', model: 'spark-open', label: 'draft', promptTokens: 500, completionTokens: 100, totalTokens: 600, costUsd: 0.01 },
+      { kind: 'gpu', provider: 'baseten', model: 'sam3', label: 'segment', seconds: 3, warming: false, costUsd: 0.02 },
+    ]);
+    expect(s.basetenLlm).toMatchObject({ calls: 1, totalTokens: 600 });
+    expect(s.baseten).toMatchObject({ calls: 1, seconds: 3 });
+    expect(s.costUsd).toBeCloseTo(0.03, 6);
+  });
   it('shows a cost only when every entry is priced', () => {
     expect(summarise([meta(1, 1, 0.5), meta(1, 1, 0.25)]).costUsd).toBe(0.75);
     expect(summarise([meta(1, 1, 0.5), meta(1, 1)]).costUsd).toBeUndefined();
+  });
+});
+
+describe('runsPerBudget', () => {
+  it('floors the credit math and floors at one run', () => {
+    expect(runsPerBudget(0.5, 20)).toBe(40);
+    expect(runsPerBudget(30, 20)).toBe(1);
+  });
+
+  it('returns undefined when there is no honest number', () => {
+    expect(runsPerBudget(undefined, 20)).toBeUndefined();
+    expect(runsPerBudget(0, 20)).toBeUndefined();
   });
 });
 
