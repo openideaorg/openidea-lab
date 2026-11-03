@@ -4,9 +4,10 @@ Built for the Meta Global AI Developer Hackathon, Startup track (26 Oct – 4 No
 This page says exactly what each partner's product does here and where in the code it
 is called, so a judge can verify it in one click.
 
-Lab Pro is Muse-only: every model call goes through the Meta Model API on one of
+Lab Pro is Muse-first: every model call goes through the Meta Model API on one of
 three tiers (contributor for explore/edits, heavy for the first draft, wonder for
-verdicts). One provider, one bill, inside the ≤$20 credit.
+verdicts). One bill inside the ≤$20 credit; the only exception is the opt-in
+Baseten Spark Open retry for draft/fix/rank when the Meta API itself fails.
 
 | Partner | Product | What it does in Lab | Code |
 |---|---|---|---|
@@ -14,6 +15,7 @@ verdicts). One provider, one bill, inside the ≤$20 credit.
 | **Meta** | SAM 3.1 (`sam-3.1`) | Optional Meta API segmentation (alongside Baseten SAM) | [`lib/muse-models.ts`](lib/muse-models.ts) |
 | **Meta** | SAM 3 | Optional vision: outlines parts in a hardware photo (secondary to Muse reasoning) | [`baseten/sam3/`](baseten/sam3/) (deployment), [`lib/baseten-sam3.ts`](lib/baseten-sam3.ts) (client) |
 | **Baseten** | GPU model hosting | Optional SAM 3 HTTPS endpoint (Moonstar GPU credit; not LLM) | [`baseten/sam3/`](baseten/sam3/), [`lib/baseten-sam3.ts`](lib/baseten-sam3.ts), [`lib/agent/tools/index.ts`](lib/agent/tools/index.ts) (`segment_photo` agent tool) |
+| **Baseten** | Muse Spark Open inference | Opt-in LLM fallback only: one retry of draft/fix/rank when the Meta API returns 429/5xx (`BASETEN_INFERENCE_FALLBACK=1` + key). Verdicts stay on Muse Wonder unless `BASETEN_INFERENCE_ALLOW_VERDICT=1`. Tokens meter under `basetenLlm`. | [`lib/baseten-muse-open.ts`](lib/baseten-muse-open.ts) (client), [`lib/muse.ts`](lib/muse.ts) + [`lib/muse-agent.ts`](lib/muse-agent.ts) (fallback call sites), [`lib/env.ts`](lib/env.ts) (keys/defaults) |
 | **Fireworks** | Fast open-model inference | **Legacy one-shot flows only** — not used by the Muse-only agent loop | [`lib/fireworks.ts`](lib/fireworks.ts) |
 
 ## Product packaging

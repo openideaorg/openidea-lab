@@ -57,6 +57,13 @@ export const env = {
   fireworksVisionModel:
     process.env.FIREWORKS_VISION_MODEL || 'accounts/fireworks/models/deepseek-v4p1-flash',
   basetenSam3ModelId: process.env.BASETEN_SAM3_MODEL_ID || '',
+  /**
+   * Baseten-hosted Muse Spark Open (OpenAI-compatible inference). Optional LLM
+   * fallback when Muse fails; defaults live here so no other file literals them
+   * (repo rule), but the client reads process.env live so tests can override.
+   */
+  basetenInferenceUrl: process.env.BASETEN_INFERENCE_API_URL || 'https://inference.baseten.co/v1',
+  basetenInferenceModel: process.env.BASETEN_INFERENCE_MODEL || 'meta-models/muse-spark-open-1026',
 };
 
 /** The shape every provider call returns, so callers never need try/catch for config. */
@@ -64,4 +71,18 @@ export type Result<T> = { ok: true; value: T } | { ok: false; error: string; mis
 
 export function notConfigured<T>(provider: Provider): Result<T> {
   return { ok: false, error: `${provider} is not configured`, missing: missingKey(provider) };
+}
+
+/**
+ * Key for the Baseten inference endpoint (Muse Spark Open). Falls back to the
+ * shared Baseten key so one variable covers SAM 3 + inference. Read live so
+ * tests and deploys see the current value.
+ */
+export function basetenInferenceKey(): string | null {
+  return process.env.BASETEN_INFERENCE_API_KEY || keyFor('baseten');
+}
+
+/** The Spark Open fallback needs a key; the SAM 3 model id is irrelevant to it. */
+export function basetenInferenceConfigured(): boolean {
+  return !!basetenInferenceKey();
 }

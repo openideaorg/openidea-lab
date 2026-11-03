@@ -5,6 +5,7 @@
  */
 
 import { env, keyFor, notConfigured, type Result } from './env';
+import { chatSparkOpen, sparkOpenFallbackAllowed } from './baseten-muse-open';
 import { routeMuseModel, type MuseTask, type RouteHint } from './muse-models';
 import type { GeneratedFile } from './muse';
 import type { Resource } from './openidea';
@@ -34,7 +35,15 @@ async function chat(
       ...(json ? { response_format: { type: 'json_object' } } : {}),
     }),
   });
-  if (!res.ok) return { ok: false, error: `Muse (${model}) failed: ${res.status} ${await res.text()}` };
+  if (!res.ok) {
+    // Same opt-in Spark Open fallback as lib/muse.ts: fix/rank degrade, while
+    // choose/verdict fail loudly — the controller and the strict paper judge
+    // stay on Muse Wonder by default.
+    if ((res.status === 429 || res.status >= 500) && sparkOpenFallbackAllowed(task)) {
+      return chatSparkOpen(label, messages, json);
+    }
+    return { ok: false, error: `Muse (${model}) failed: ${res.status} ${await res.text()}` };
+  }
   const body = (await res.json()) as { choices?: { message?: { content?: string } }[]; usage?: ApiUsage };
   recordTokens('meta', model, label, body.usage);
   const content = body.choices?.[0]?.message?.content;

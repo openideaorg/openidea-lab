@@ -17,6 +17,7 @@
  */
 
 import { env, keyFor, notConfigured, type Result } from './env';
+import { chatSparkOpen, sparkOpenFallbackAllowed } from './baseten-muse-open';
 import type { Resource } from './openidea';
 import { recordTokens, type ApiUsage } from './usage';
 
@@ -79,7 +80,19 @@ async function chat(tier: MuseTier, label: string, system: string, user: Content
       await new Promise((r) => setTimeout(r, 1500));
       continue;
     }
-    if (!res.ok) return { ok: false, error: `Muse Spark failed: ${res.status} ${await res.text()}` };
+    if (!res.ok) {
+      // Optional Spark Open fallback (opt-in + key, draft/fix/rank only):
+      // plan/parts/label/verdict fail loudly so Muse judgement stays Muse.
+      if (res.status === 429 || res.status >= 500) {
+        if (sparkOpenFallbackAllowed(label)) {
+          return chatSparkOpen(label, [
+            { role: 'system', content: system },
+            { role: 'user', content: user },
+          ], json);
+        }
+      }
+      return { ok: false, error: `Muse Spark failed: ${res.status} ${await res.text()}` };
+    }
     const body = (await res.json()) as { choices?: { message?: { content?: string } }[]; usage?: ApiUsage };
     recordTokens('meta', model, label, body.usage);
     const content = body.choices?.[0]?.message?.content;

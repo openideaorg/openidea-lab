@@ -8,7 +8,7 @@
  * set in the environment, because list prices change and are not ours to guess.
  */
 
-export type TokenProvider = 'meta' | 'fireworks';
+export type TokenProvider = 'meta' | 'fireworks' | 'baseten';
 
 export interface TokenEntry {
   kind: 'tokens';
@@ -55,6 +55,8 @@ export interface UsageSummary {
   meta?: TokenTotals;
   fireworks?: TokenTotals;
   baseten?: GpuTotals;
+  /** Baseten-hosted LLM fallback (Muse Spark Open) tokens — SAM 3 GPU time stays in `baseten`. */
+  basetenLlm?: TokenTotals;
   /** Sum across providers; only present when every entry has a cost. */
   costUsd?: number;
 }
@@ -82,6 +84,7 @@ export function summarise(entries: UsageEntry[]): UsageSummary {
   return {
     meta: tokens('meta'),
     fireworks: tokens('fireworks'),
+    basetenLlm: tokens('baseten'),
     baseten: gpu.length
       ? {
           calls: gpu.length,
