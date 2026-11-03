@@ -29,6 +29,8 @@ export interface StudioExport {
   steps?: string[];
   /** Paper runs: the testable claim, the verdict line and the researcher's sign-off. */
   claim?: string;
+  /** Paper runs: what the sandbox run computed vs the paper's setting, so Studio does not inherit a sample-scale number as the paper's. */
+  scaleLine?: string;
   verdictLine?: string;
   signoffLine?: string;
   files: GeneratedFile[];
@@ -61,6 +63,7 @@ export function studioDescription(x: StudioExport): string {
   // Studio's first build which result is trusted and what would strengthen it.
   const judgement = [
     x.claim ? `Claim tested: ${x.claim.trim().slice(0, 300)}` : '',
+    x.scaleLine ? `Scale (this run vs paper): ${x.scaleLine.trim().slice(0, 300)}` : '',
     x.verdictLine ? `Verdict: ${x.verdictLine.trim().slice(0, 400)}` : '',
     x.signoffLine ? `Researcher sign-off: ${x.signoffLine.trim().slice(0, 200)}` : '',
   ].filter(Boolean).join('\n');

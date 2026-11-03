@@ -26,6 +26,12 @@ export interface SavedRun {
   figures?: string[];
   /** Paper run: the one testable sentence the notebook checked (paper-ingest handoff). */
   claim?: string;
+  /**
+   * Paper run: what this CPU-only sandbox run computed versus the paper's
+   * setting (from the README's "Scale:" line). Kept so a sample-scale pass
+   * is never replayed later as the paper's own number.
+   */
+  scale?: string;
   /** Paper run: does the output support the paper's claim? */
   verdict?: Verdict;
   /**
@@ -139,6 +145,7 @@ export function runToMarkdown(run: SavedRun): string {
     if (run.plan.steps.length) out.push('', '**Steps**', ...run.plan.steps.map((x, i) => `${i + 1}. ${x}`));
   }
   if (run.claim) out.push('', '## Claim tested', '', run.claim);
+  if (run.scale) out.push('', '## Scale (this run vs the paper)', '', run.scale);
   if (run.verdict) {
     out.push('', '## Verdict', '', `**${run.verdict.verdict}** — ${run.verdict.reason}`);
     if (run.verdict.missing) out.push('', `To strengthen: ${run.verdict.missing}`);

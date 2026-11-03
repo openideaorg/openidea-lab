@@ -149,6 +149,13 @@ export default function HistoryPage() {
             </div>
           )}
 
+          {open.scale && (
+            <div>
+              <h3 className="text-xs uppercase tracking-wide text-[var(--muted)]">Scale (this run vs the paper)</h3>
+              <p className="mt-1 text-sm">{open.scale}</p>
+            </div>
+          )}
+
           {open.verdict && (
             <div className="rounded-md border border-[var(--line)] bg-[var(--surface)] p-3 text-sm">
               <p><b>Verdict: {open.verdict.verdict}</b> — {open.verdict.reason}</p>

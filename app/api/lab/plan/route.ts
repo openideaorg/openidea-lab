@@ -23,7 +23,8 @@ const Body = z.discriminatedUnion('kind', [
 /**
  * Muse: plan an idea and draft its prototype, or draft a paper reproduction.
  *
- * Paper responses include the extracted `claim` — the paper-ingest handoff.
+ * Paper responses include the extracted `claim` — the paper-ingest handoff —
+ * and `scale`, the README's own statement of what was cut down vs the paper.
  * The client uses it for the verdict step instead of the raw pasted text, so
  * the judgement targets the one sentence the notebook actually tested.
  */
@@ -46,7 +47,8 @@ export const POST = safe(async (req: Request) => {
     // Paper ingest: the draft returns the testable claim alongside the files.
     const drafted = await draftNotebook(body.text, body.context);
     if (!drafted.ok) return { out: drafted, status: drafted.missing ? 424 : 502 };
-    return { out: { ok: true as const, value: { files: drafted.value.files, claim: drafted.value.claim } }, status: 200 };
+    // `scale` is the honest-limits line (paper setting vs this sandbox run); optional, may be ''.
+    return { out: { ok: true as const, value: { files: drafted.value.files, claim: drafted.value.claim, scale: drafted.value.scale } }, status: 200 };
   });
 
   return NextResponse.json({ ...result.out, usage }, { status: result.status });

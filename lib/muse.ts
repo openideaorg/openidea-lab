@@ -133,7 +133,7 @@ export async function draftPrototype(idea: string, plan: Plan): Promise<Result<G
 }
 
 /** Paper flow: a notebook that reproduces one key result on small data. */
-export async function draftNotebook(paperText: string, context: Resource[]): Promise<Result<{ files: GeneratedFile[]; claim: string }>> {
+export async function draftNotebook(paperText: string, context: Resource[]): Promise<Result<{ files: GeneratedFile[]; claim: string; scale: string }>> {
   const system =
     'You reproduce the key result of a research paper as ONE Python script that runs in Pyodide ' +
     '(numpy, pandas, matplotlib, scikit-learn available; no torch, no network, no files to download). ' +
@@ -146,8 +146,9 @@ export async function draftNotebook(paperText: string, context: Resource[]): Pro
     '(5) If the check fails, adjust the experiment (grid, sample size, noise) once within the script and re-run before plotting. ' +
     '(6) Always run a null baseline next to the main experiment — the same script on shuffled/permuted labels or another no-structure control — and print its number beside the main number. A claim passes only if it beats the baseline outside the standard error; a script without a baseline cannot pass, because "it runs" is not a reproduction. ' +
     '(7) Print the table of values the figure is drawn from, then call plt.show(). ' +
+    '(8) The sandbox is a browser CPU with no GPU and a few seconds of compute, so the experiment is scaled down. Say so plainly: the README has one line starting with "Scale:" giving the paper\'s setting next to this run\'s (samples, dimensions, epochs or trials, rough seconds) and ending with what the scaled-down run cannot show. Never present the sample-scale number as the paper\'s number. ' +
     'Return JSON: {"claim": string, "files": [{"path": "reproduce.py", "content": string}, {"path": "README.md", "content": string}]}. ' +
-    'The README states the claim being tested in one sentence with its numeric bar, the synthetic setup, the baseline, and what "CHECK: pass" means in numbers. ' +
+    'The README states the claim being tested in one sentence with its numeric bar, the synthetic setup, the baseline, what "CHECK: pass" means in numbers, and the "Scale:" line. ' +
     'The "claim" field is the single testable sentence the verdict step will judge (e.g. "Test error peaks at interpolation threshold n=d then falls"), not a summary of the paper.';
   // 12k chars (~3k tokens) of paper text: enough for the key result and
   // method, while the heavy call stays cents on the ≤$20 credit.
@@ -165,7 +166,12 @@ export async function draftNotebook(paperText: string, context: Resource[]): Pro
   // sentence, not the raw pasted text. Fall back to the README when the model
   // returns files without a claim (older prompt shape).
   const claim = parsed.value.claim?.trim() || claimFromReadme(clean.value) || paperText.slice(0, 500);
-  return { ok: true, value: { files: clean.value, claim } };
+  // The scale line is the honest-limits handoff: the UI shows what was cut
+  // down versus the paper next to the verdict, so a sample-scale pass is
+  // never read as the paper's own number. Empty when the model skipped it;
+  // the UI then falls back to the generic sandbox note.
+  const scale = scaleFromReadme(clean.value);
+  return { ok: true, value: { files: clean.value, claim, scale } };
 }
 
 /** Photo flow: enrich a labelled parts list with datasheets and prices from search results. */
@@ -390,6 +396,26 @@ export function claimFromReadme(files: GeneratedFile[]): string {
     .replace(/^\*\*?/, '')
     .trim()
     .slice(0, 500);
+}
+
+/**
+ * Pull the "Scale:" line out of a generated README: the paper's setting
+ * versus what this CPU-only sandbox run actually computed. Same pure string
+ * search as claimFromReadme, so no model call and unit-testable. Empty when
+ * the README has no labelled line.
+ */
+export function scaleFromReadme(files: GeneratedFile[]): string {
+  const readme = files.find((f) => /readme/i.test(f.path))?.content ?? '';
+  const line = readme
+    .split('\n')
+    .map((l) => l.trim())
+    .find((l) => /^[#*\->\s]*scale\b[^:]*:/i.test(l));
+  if (!line) return '';
+  return line
+    .replace(/^[#*\->\s]*scale\b[^:]*:\s*/i, '')
+    .replace(/\*\*/g, '')
+    .trim()
+    .slice(0, 400);
 }
 
 async function parseJson<T>(text: string): Promise<Result<T>> {

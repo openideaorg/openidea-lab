@@ -71,6 +71,7 @@ function Flow({ kind, title, placeholder, hint }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [verdict, setVerdict] = useState<Verdict | null>(null);
   const [claim, setClaim] = useState('');
+  const [scale, setScale] = useState('');
   const [signoff, setSignoff] = useState<'approved' | 'challenged' | null>(null);
   const [bibtex, setBibtex] = useState<'idle' | 'done' | 'failed'>('idle');
   const [savedId, setSavedId] = useState<string | null>(null);
@@ -85,7 +86,7 @@ function Flow({ kind, title, placeholder, hint }: Props) {
   }
 
   async function start() {
-    setStep('searching'); setLog([]); setError(null); setPlan(null); setFiles([]); setRun(null); setGraph(null); setUsage([]); setVerdict(null); setClaim(''); setSignoff(null); setBibtex('idle'); setSavedId(null);
+    setStep('searching'); setLog([]); setError(null); setPlan(null); setFiles([]); setRun(null); setGraph(null); setUsage([]); setVerdict(null); setClaim(''); setScale(''); setSignoff(null); setBibtex('idle'); setSavedId(null);
 
     const found = await call<Resource[]>('/api/lab/search', { query: input.slice(0, 500), keep: 6 });
     if (!found.ok) return fail(found.error, found.missing);
@@ -104,7 +105,7 @@ function Flow({ kind, title, placeholder, hint }: Props) {
     }
 
     setStep('drafting');
-    const draft = await call<{ plan?: Plan; files: GeneratedFile[]; claim?: string }>(
+    const draft = await call<{ plan?: Plan; files: GeneratedFile[]; claim?: string; scale?: string }>(
       '/api/lab/plan',
       kind === 'idea' ? { kind, idea: input, context: found.value, graph: graphText } : { kind, text: input, context: found.value },
     );
@@ -115,6 +116,10 @@ function Flow({ kind, title, placeholder, hint }: Props) {
     // Falls back to the pasted text when the server predates the claim field.
     const claimLocal = kind === 'paper' ? (draft.value.claim || input.slice(0, 6000)) : '';
     if (claimLocal) setClaim(claimLocal);
+    // Honest-limits line: what this CPU-only run computes vs the paper. Shown
+    // beside the verdict so the sample-scale number is not read as the paper's.
+    const scaleLocal = kind === 'paper' ? (draft.value.scale || '') : '';
+    if (scaleLocal) setScale(scaleLocal);
     if (planLocal) setPlan(planLocal);
     let current = draft.value.files;
     setFiles(current);
@@ -156,6 +161,7 @@ function Flow({ kind, title, placeholder, hint }: Props) {
           // Paper-ingest handoff, persisted: History keeps the exact sentence
           // the verdict judged, not just the verdict.
           claim: kind === 'paper' ? claimLocal || undefined : undefined,
+          scale: scaleLocal || undefined,
           title: input.replace(/\s+/g, ' ').trim().slice(0, 70),
         });
         setSavedId(saved?.id ?? null);
@@ -327,6 +333,11 @@ function Flow({ kind, title, placeholder, hint }: Props) {
                 {signoff === 'approved' ? 'You signed off on this verdict.' : 'You challenged this verdict — noted in History.'}
               </span>
             )}
+            <span id="verdict-scale" className="mt-1 block text-xs text-[var(--muted)]">
+              {scale
+                ? `Scale, this run vs the paper: ${scale}`
+                : 'Sample-scale run in your browser (CPU, no GPU, seconds of compute). It tests the claim\u2019s shape, not the paper\u2019s full numbers.'}
+            </span>
             <span className="mt-1 block text-xs text-[var(--muted)]">Judged from the printed output on synthetic data. Not a peer review.</span>
           </div>
         )}
@@ -358,6 +369,7 @@ function Flow({ kind, title, placeholder, hint }: Props) {
               summary={plan?.summary}
               plan={plan}
               claim={kind === 'paper' && claim ? claim.slice(0, 1500) : undefined}
+              scaleLine={scale || undefined}
               verdictLine={verdict ? `${verdict.verdict} — ${verdict.reason}${verdict.missing ? ` To strengthen: ${verdict.missing}` : ''}`.slice(0, 500) : undefined}
               signoffLine={signoff ?? undefined}
               files={files}

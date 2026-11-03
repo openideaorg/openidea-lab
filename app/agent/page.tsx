@@ -371,6 +371,7 @@ function AgentPageInner() {
             <p className="mb-2 text-[var(--muted)]">
               run {run.id} · turn {run.turn} · {run.status}
               {run.verdict ? ` · verdict ${run.verdict.verdict}` : ''}
+              {run.scale ? <span id="agent-scale" className="block">scale (this run vs paper) · {run.scale}</span> : null}
             </p>
           )}
           <ol className="grid gap-2">

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { claimFromReadme, modelFor, parseVerdict, sanitizeFiles } from '@/lib/muse';
+import { claimFromReadme, modelFor, parseVerdict, sanitizeFiles, scaleFromReadme } from '@/lib/muse';
 
 const saved = { ...process.env };
 afterEach(() => {
@@ -38,6 +38,21 @@ describe('claimFromReadme', () => {
   it('returns empty when no claim line exists (caller falls back to the paper text)', () => {
     expect(claimFromReadme([{ path: 'README.md', content: '# Repro\n\nNo claim here.' }])).toBe('');
     expect(claimFromReadme([])).toBe('');
+  });
+});
+
+describe('scaleFromReadme', () => {
+  it('pulls the honest-limits line (paper setting vs this run) out of the README', () => {
+    const files = [
+      { path: 'reproduce.py', content: 'print(1)' },
+      { path: 'README.md', content: '# Repro\n\nClaim: peak at n=d.\n\n**Scale:** paper n=10k, d=1k, 100 epochs; this run n=30, d<=60, 20 trials, ~3 s on CPU. Cannot show the large-d plateau.' },
+    ];
+    expect(scaleFromReadme(files)).toBe('paper n=10k, d=1k, 100 epochs; this run n=30, d<=60, 20 trials, ~3 s on CPU. Cannot show the large-d plateau.');
+  });
+
+  it('ignores prose that merely mentions scale and returns empty when the line is absent', () => {
+    expect(scaleFromReadme([{ path: 'README.md', content: '# Repro\n\nWe scale the inputs to unit variance.\n\nClaim: x.' }])).toBe('');
+    expect(scaleFromReadme([])).toBe('');
   });
 });
 

@@ -21,6 +21,7 @@ interface Props {
   plan?: Plan | null;
   /** Paper runs: the tested claim, verdict line and sign-off for the description. */
   claim?: string;
+  scaleLine?: string;
   verdictLine?: string;
   signoffLine?: string;
   files: GeneratedFile[];
@@ -29,7 +30,7 @@ interface Props {
   onOpened?: (h: Handoff) => void;
 }
 
-export function StudioButton({ title, idea, summary, plan, claim, verdictLine, signoffLine, files, runId, onOpened }: Props) {
+export function StudioButton({ title, idea, summary, plan, claim, scaleLine, verdictLine, signoffLine, files, runId, onOpened }: Props) {
   const [apiKey, setApiKey] = useState('');
   const [asking, setAsking] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -61,6 +62,7 @@ export function StudioButton({ title, idea, summary, plan, claim, verdictLine, s
         steps: plan?.steps,
         files,
         claim,
+        scaleLine,
         verdictLine,
         signoffLine,
         // Carried into the Studio description as a link back to this Lab run,

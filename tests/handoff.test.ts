@@ -27,11 +27,13 @@ describe('hand-off', () => {
       title: 'Double descent',
       idea: 'Paper reproduction. Test error peaks at n=d then falls.',
       claim: 'Test error peaks at n=d then falls.',
+      scaleLine: 'paper n=10k; this run n=30, ~3 s CPU.',
       verdictLine: 'partial — shape right, baseline missing.',
       signoffLine: 'challenged',
       files: [{ path: 'reproduce.py', content: 'print(1)' }],
     });
     expect(d).toContain('Claim tested: Test error peaks');
+    expect(d).toContain('Scale (this run vs paper): paper n=10k');
     expect(d).toContain('Verdict: partial');
     expect(d).toContain('Researcher sign-off: challenged');
     expect(d.length).toBeLessThanOrEqual(2000);

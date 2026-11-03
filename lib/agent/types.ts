@@ -66,6 +66,8 @@ export interface LabRun {
   files: GeneratedFile[];
   /** Testable claim the draft step extracted (paper runs). Judged, not the raw paste. */
   claim?: string;
+  /** Paper runs: what this CPU-only sandbox run computes vs the paper's setting (README "Scale:" line). */
+  scale?: string;
   figures?: string[];
   /** Photo runs: the uploaded image (data URL) lives on the run so segment_photo can reuse it across turns. */
   photoImage?: string;

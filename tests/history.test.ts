@@ -50,6 +50,12 @@ describe('runToMarkdown', () => {
     expect(md).toContain('To strengthen: Add the shuffled baseline.');
     expect(md).toContain('**Researcher sign-off:** challenged');
   });
+
+  it('carries the scale line so an exported run never reads as the paper\'s own numbers', () => {
+    const md = runToMarkdown(run({ scale: 'paper n=10k; this run n=30, ~3 s CPU. Cannot show the plateau.' }));
+    expect(md).toContain('## Scale (this run vs the paper)');
+    expect(md).toContain('this run n=30');
+  });
 });
 
 describe('parseRunImport', () => {

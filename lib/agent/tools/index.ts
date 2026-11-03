@@ -418,6 +418,8 @@ async function draftCode(run: LabRun): Promise<ToolOutcome> {
   // The claim is the paper-ingest handoff: judge_paper judges this exact
   // sentence, not the raw paste (same rule as the one-shot paper flow).
   run.claim = drafted.value.claim;
+  // Honest-limits line beside the verdict: sample-scale is not the paper's number.
+  run.scale = drafted.value.scale || undefined;
   if (!run.plan) {
     run.plan = {
       summary: 'Paper reproduction notebook drafted.',
@@ -427,7 +429,7 @@ async function draftCode(run: LabRun): Promise<ToolOutcome> {
       steps: ['Run sandbox', 'Judge', 'Cite', 'Submit'],
     };
   }
-  return { observation: JSON.stringify({ ok: true, files: run.files.map((f) => f.path) }) };
+  return { observation: JSON.stringify({ ok: true, files: run.files.map((f) => f.path), claim: run.claim, scale: run.scale }) };
 }
 
 function runSandbox(run: LabRun): ToolOutcome {
