@@ -90,7 +90,9 @@ Manual (keys needed for the live path):
 - Agent labelling reads boxes off the full photo; the `/photo` UI's per-part
   crops can name tiny parts better. Same JSON contract, so a future
   server-side crop could swap in without touching the tool.
-- The agent console UI (`app/agent`) still offers only idea/paper kinds; photo
-  runs start via the API until the UI gains an upload control.
+- ~~The agent console UI (`app/agent`) still offers only idea/paper kinds; photo
+  runs start via the API until the UI gains an upload control.~~
+  Closed: `app/agent` now offers the photo kind with an attach control, a
+  `photo_upload` pause/resume path, and a parts-list panel (no sandbox hop).
 - `draft_code` on a photo run drafts a notebook (harmless); the playbook says
   to skip it, no gate enforces that yet.

@@ -33,8 +33,10 @@ async function post<T>(body: unknown): Promise<
 
 function AgentPageInner() {
   const params = useSearchParams();
-  const [kind, setKind] = useState<'idea' | 'paper'>('idea');
+  const [kind, setKind] = useState<'idea' | 'paper' | 'photo'>('idea');
   const [input, setInput] = useState('');
+  const [photo, setPhoto] = useState<string | null>(null);
+  const [photoName, setPhotoName] = useState<string | null>(null);
   const [planTier, setPlanTier] = useState<'free' | 'pro'>('free');
   const [run, setRun] = useState<LabRun | null>(null);
   const [busy, setBusy] = useState(false);
@@ -45,7 +47,7 @@ function AgentPageInner() {
     const q = params.get('q');
     if (q) setInput(q);
     const k = params.get('kind');
-    if (k === 'paper' || k === 'idea') setKind(k);
+    if (k === 'paper' || k === 'idea' || k === 'photo') setKind(k);
   }, [params]);
 
   async function applyResult(r: { ok: true; value: AgentTurnResult } | { ok: false; error: string; missing?: string; upgrade?: boolean }) {
@@ -70,8 +72,35 @@ function AgentPageInner() {
     setBusy(true);
     setError(null);
     setRun(null);
-    const r = await post<AgentTurnResult>({ action: 'start', kind, input, planTier });
+    // Photo runs carry the image on the run; the controller calls segment_photo with {}.
+    const r = await post<AgentTurnResult>(
+      kind === 'photo' && photo
+        ? { action: 'start', kind, input, planTier, image: photo }
+        : { action: 'start', kind, input, planTier },
+    );
     await applyResult(r);
+  }
+
+  /** Read a hardware photo as a data URL (route cap ~3MB chars; shrink first if larger). */
+  async function pickPhoto(file: File | undefined) {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setError('Pick an image file (JPEG/PNG) of the hardware.');
+      return;
+    }
+    const text = await new Promise<string>((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onload = () => resolve(String(fr.result));
+      fr.onerror = () => reject(new Error('Could not read the photo.'));
+      fr.readAsDataURL(file);
+    });
+    if (text.length > 3_000_000) {
+      setError(`Photo is ${(text.length / 1e6).toFixed(1)}MB; shrink it under ~2MB and try again.`);
+      return;
+    }
+    setPhoto(text);
+    setPhotoName(file.name);
+    setError(null);
   }
 
   async function resume(patch: Record<string, unknown>) {
@@ -82,6 +111,11 @@ function AgentPageInner() {
   }
 
   async function runClientSandbox(current: LabRun) {
+    // Photo runs produce a parts list, not code — nothing to execute in a sandbox.
+    if (current.kind === 'photo' || !(current.files?.length ?? 0)) {
+      setBusy(false);
+      return;
+    }
     try {
       const runner =
         current.kind === 'idea'
@@ -131,11 +165,12 @@ function AgentPageInner() {
             Kind
             <select
               value={kind}
-              onChange={(e) => setKind(e.target.value as 'idea' | 'paper')}
+              onChange={(e) => setKind(e.target.value as 'idea' | 'paper' | 'photo')}
               className="rounded border border-[var(--line)] bg-[var(--surface)] px-2 py-1"
             >
               <option value="idea">Idea</option>
               <option value="paper">Paper</option>
+              <option value="photo">Photo</option>
             </select>
           </label>
           <label className="flex items-center gap-2">
@@ -159,12 +194,34 @@ function AgentPageInner() {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           rows={kind === 'paper' ? 12 : 5}
-          placeholder={kind === 'paper' ? 'Paste paper abstract / claim…' : 'Describe the idea to prototype…'}
+          placeholder={
+            kind === 'paper'
+              ? 'Paste paper abstract / claim…'
+              : kind === 'photo'
+                ? 'What hardware is in the photo? (e.g. ESP32 soil-moisture rig)'
+                : 'Describe the idea to prototype…'
+          }
           className="w-full rounded-md border border-[var(--line)] bg-[var(--surface)] p-3 text-sm outline-none focus:border-[var(--accent)]"
         />
+        {kind === 'photo' && (
+          <div className="grid gap-1 text-sm">
+            <label className="flex w-fit cursor-pointer items-center gap-2 rounded border border-[var(--line)] px-3 py-1.5">
+              {photoName ? `Photo: ${photoName}` : 'Attach hardware photo'}
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => void pickPhoto(e.target.files?.[0])}
+              />
+            </label>
+            <p className="text-xs text-[var(--muted)]">
+              SAM 3 outlines each part; Muse names them. First run can take 30–90s while the GPU wakes.
+            </p>
+          </div>
+        )}
         <button
           onClick={start}
-          disabled={busy || input.trim().length < 5}
+          disabled={busy || (kind === 'photo' ? !photo : input.trim().length < 5)}
           className="w-fit rounded-md bg-[var(--accent)] px-4 py-2 text-sm font-medium text-black disabled:opacity-40"
         >
           {busy ? 'Running…' : 'Start Muse agent'}
@@ -176,11 +233,35 @@ function AgentPageInner() {
           </p>
         )}
 
-        {run && (run.status === 'needs_input' || run.status === 'awaiting_signoff') && (
+        {run && (run.status === 'needs_input' || run.status === 'awaiting_signoff' || run.stopReason === 'photo_upload') && (
           <div className="rounded-md border border-[var(--line)] bg-[var(--surface)] p-3 text-sm">
             <p className="font-medium">Human in the loop</p>
             <p className="mt-1 text-[var(--muted)]">Status: {run.status} · {run.stopReason ?? '—'}</p>
             <div className="mt-3 flex flex-wrap gap-2">
+              {run.stopReason === 'photo_upload' && (
+                <label className="flex cursor-pointer items-center gap-2 rounded bg-[var(--accent)] px-3 py-1.5 text-black">
+                  {photoName ? `Attached: ${photoName} — send` : 'Attach photo'}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={async (e) => {
+                      const f = e.target.files?.[0];
+                      if (!f) return;
+                      await pickPhoto(f);
+                    }}
+                  />
+                </label>
+              )}
+              {run.stopReason === 'photo_upload' && photo && (
+                <button
+                  className="rounded border border-[var(--line)] px-3 py-1.5"
+                  disabled={busy}
+                  onClick={() => resume({ image: photo })}
+                >
+                  Send photo & continue
+                </button>
+              )}
               {run.stopReason === 'approve_plan' && (
                 <button
                   className="rounded bg-[var(--accent)] px-3 py-1.5 text-black"
@@ -217,6 +298,15 @@ function AgentPageInner() {
             <p className="mt-1 text-[var(--muted)]">Buildable: {run.plan.buildable ? 'yes' : 'not yet'}</p>
           </div>
         )}
+
+        {run?.partsMarkdown ? (
+          <div className="rounded-md border border-[var(--line)] p-3 text-sm">
+            <h2 className="text-xs uppercase tracking-wide text-[var(--muted)]">
+              Parts list{run.parts?.length ? ` (${run.parts.length})` : ''}
+            </h2>
+            <pre className="mt-2 max-h-96 overflow-auto whitespace-pre-wrap text-xs">{run.partsMarkdown}</pre>
+          </div>
+        ) : null}
 
         {run?.files?.length ? (
           <div className="grid gap-2">

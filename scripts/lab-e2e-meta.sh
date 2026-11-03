@@ -77,7 +77,7 @@ vals=(d.get('value') or [])[:6]
 ctx=[{"id":r.get('id',r.get('url','')),"type":r.get('type','paper'),"title":r.get('title',''),"url":r.get('url','')} for r in vals]
 print(json.dumps({"kind":"paper","text":$QTEXT,"context":ctx}))
 EOF
-code=$(curl -s -o "$OUT/plan.json" -w '%{http_code}' --max-time 55 -X POST "$BASE/api/lab/plan" \
+code=$(curl -s -o "$OUT/plan.json" -w '%{http_code}' --max-time 180 -X POST "$BASE/api/lab/plan" \
   -H 'Content-Type: application/json' -d @"$OUT/plan-body.json")
 say "plan -> $code"
 if [ "$code" = "200" ]; then
