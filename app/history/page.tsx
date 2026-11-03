@@ -1,16 +1,17 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { deleteRun, listRuns, runToBibtex, runToMarkdown, type SavedRun } from '@/lib/history';
+import { deleteRun, listRuns, parseRunImport, runToBibtex, runToMarkdown, saveRun, type SavedRun } from '@/lib/history';
 import { saveToWorkspaceLink } from '@/lib/handoff';
 
 const ICON = { idea: '💡', paper: '📄', photo: '📷' } as const;
 
-function download(run: SavedRun) {
-  const url = URL.createObjectURL(new Blob([runToMarkdown(run)], { type: 'text/markdown' }));
+function download(run: SavedRun, format: 'md' | 'json') {
+  const body = format === 'md' ? runToMarkdown(run) : JSON.stringify(run, null, 2);
+  const url = URL.createObjectURL(new Blob([body], { type: format === 'md' ? 'text/markdown' : 'application/json' }));
   const a = document.createElement('a');
   a.href = url;
-  a.download = `${run.kind}-${run.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40) || 'run'}.md`;
+  a.download = `${run.kind}-${run.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40) || 'run'}.${format}`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -19,12 +20,29 @@ export default function HistoryPage() {
   const [runs, setRuns] = useState<SavedRun[] | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
 
   useEffect(() => {
     const list = listRuns();
     setRuns(list);
     setOpenId(list[0]?.id ?? null);
   }, []);
+
+  async function importFile(file: File) {
+    setImportError(null);
+    try {
+      const saved = saveRun(parseRunImport(await file.text()));
+      if (!saved) {
+        setImportError('The browser refused to store it (private mode or quota).');
+        return;
+      }
+      const list = listRuns();
+      setRuns(list);
+      setOpenId(saved.id);
+    } catch (e) {
+      setImportError(e instanceof Error ? e.message : 'Could not read that file.');
+    }
+  }
 
   if (runs === null) return null;
   const open = runs.find((r) => r.id === openId) ?? null;
@@ -34,6 +52,20 @@ export default function HistoryPage() {
       <section className="grid content-start gap-2">
         <h1 className="text-2xl font-semibold tracking-tight">History</h1>
         <p className="text-sm text-[var(--muted)]">Saved in this browser only. Download a run to keep it elsewhere.</p>
+        <label className="mt-1 inline-block cursor-pointer rounded-md border border-[var(--line)] px-3 py-1.5 text-sm">
+          Import run (.json)
+          <input
+            type="file"
+            accept="application/json,.json"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              e.target.value = '';
+              if (f) void importFile(f);
+            }}
+          />
+        </label>
+        {importError && <p className="text-sm text-red-300">{importError}</p>}
         {runs.length === 0 && <p className="mt-2 text-sm text-[var(--muted)]">Nothing yet. Finished idea, paper and photo runs appear here.</p>}
         {runs.map((r) => (
           <button
@@ -53,8 +85,11 @@ export default function HistoryPage() {
         <section className="grid min-w-0 content-start gap-4">
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="mr-auto text-lg font-medium">{open.title}</h2>
-            <button id="download-run" onClick={() => download(open)} className="rounded-md border border-[var(--accent)] px-3 py-1.5 text-sm">
+            <button id="download-run" onClick={() => download(open, 'md')} className="rounded-md border border-[var(--accent)] px-3 py-1.5 text-sm">
               Download .md
+            </button>
+            <button id="download-run-json" onClick={() => download(open, 'json')} className="rounded-md border border-[var(--line)] px-3 py-1.5 text-sm">
+              Export .json
             </button>
             {open.context && open.context.length > 0 && (
               <button

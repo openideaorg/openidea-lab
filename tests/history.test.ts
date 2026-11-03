@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { runToBibtex, runToMarkdown, type SavedRun } from '@/lib/history';
+import { parseRunImport, runToBibtex, runToMarkdown, type SavedRun } from '@/lib/history';
 
 const run = (over: Partial<SavedRun> = {}): SavedRun => ({
   id: 'r1',
@@ -49,5 +49,20 @@ describe('runToMarkdown', () => {
     expect(md).toContain('**partial**');
     expect(md).toContain('To strengthen: Add the shuffled baseline.');
     expect(md).toContain('**Researcher sign-off:** challenged');
+  });
+});
+
+describe('parseRunImport', () => {
+  it('accepts an exported run and drops the old id', () => {
+    const back = parseRunImport(JSON.stringify(run({ id: 'old', createdAt: 123 })));
+    expect(back.kind).toBe('paper');
+    expect(back.title).toBe('Double descent');
+    expect(back).not.toHaveProperty('id');
+  });
+
+  it('rejects garbage with a plain message', () => {
+    expect(() => parseRunImport('not json')).toThrow('not valid JSON');
+    expect(() => parseRunImport('{"kind":"video","title":"x","input":"y"}')).toThrow('idea, paper or photo');
+    expect(() => parseRunImport('{"kind":"paper"}')).toThrow('title and input');
   });
 });

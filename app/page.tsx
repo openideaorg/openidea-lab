@@ -70,7 +70,7 @@ export default function Home() {
       <section className="max-w-2xl rounded-lg border border-[var(--line)] bg-[var(--surface)] p-5">
         <h2 className="font-medium">Why Lab Pro instead of pasting into Claude?</h2>
         <ul className="mt-2 grid gap-1 text-sm text-[var(--muted)]">
-          <li><b className="text-[var(--fg)]">Saved runs.</b> Every finished run is kept in History with its claim, verdict and files.</li>
+          <li><b className="text-[var(--fg)]">Saved runs.</b> Every finished run is kept in History with its claim, verdict and files — export it as a file and bring it back on any machine.</li>
           <li><b className="text-[var(--fg)]">A verdict, not a vibe.</b> The figure comes with a CHECK number, an independent judgement and your sign-off.</li>
           <li><b className="text-[var(--fg)]">BibTeX in one click.</b> Every open resource the run used, ready to cite.</li>
           <li><b className="text-[var(--fg)]">Studio starts from evidence.</b> Plan, files, claim and verdict travel to App Studio, so its first build is not a blank page.</li>

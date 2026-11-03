@@ -102,6 +102,34 @@ export function saveRun(run: NewRun): SavedRun | null {
   return write(list) ? saved : null;
 }
 
+/**
+ * Validate an imported run file. Export is `JSON.stringify(savedRun)` from
+ * History; import must tolerate hand edits, so it checks only the shape Lab
+ * needs and lets `saveRun` mint a fresh id and timestamp. Throws a plain
+ * message the UI can show as-is.
+ */
+export function parseRunImport(raw: string): NewRun {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error('That file is not valid JSON.');
+  }
+  if (typeof parsed !== 'object' || parsed === null) throw new Error('That file is not a Lab run.');
+  const r = parsed as Record<string, unknown>;
+  if (r.kind !== 'idea' && r.kind !== 'paper' && r.kind !== 'photo') {
+    throw new Error('That file is not a Lab run (kind must be idea, paper or photo).');
+  }
+  if (typeof r.title !== 'string' || !r.title.trim() || typeof r.input !== 'string') {
+    throw new Error('That file is not a Lab run (it needs a title and input).');
+  }
+  // A re-imported run gets a fresh identity from saveRun; strip the old one.
+  const rest: Record<string, unknown> = { ...r };
+  delete rest.id;
+  delete rest.createdAt;
+  return { ...rest, kind: r.kind, title: r.title, input: r.input } as NewRun;
+}
+
 export function runToMarkdown(run: SavedRun): string {
   const out: string[] = [`# ${run.title}`, '', `_${run.kind} run · ${new Date(run.createdAt).toLocaleString()} · OpenIdea Lab_`, '', '## Input', '', run.input];
   if (run.plan) {
