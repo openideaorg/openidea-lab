@@ -32,6 +32,7 @@ No prose outside the JSON. No multi-tool batches.
 ## Paper path (Transformer / arXiv)
 
 Prefer `resolve_paper` with `arxiv:1706.03762` (or DOI) → `search_open` related work → `expand_graph` → `set_plan` → draft/run/judge → `cite_sources` → submit. Do not invent citations.
+For comparisons pass several at once — `resolve_paper` takes `papers:[{arxiv:"…"},{doi:"…"}]` (up to 5) or resolves every id in the pasted text — and cite each one.
 
 ## Photo path (hardware photo)
 

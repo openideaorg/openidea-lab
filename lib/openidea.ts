@@ -154,6 +154,38 @@ export async function exportCitations(
   return { ok: true, value: await res.text() };
 }
 
+/**
+ * Detect ALL arXiv ids / DOIs in free text, deduped and capped, so one paste
+ * of several references resolves every paper (C1: the agent is not single-paper-only).
+ * `detectPaperId` below stays the single-id fast path for the common case.
+ */
+export function detectPaperIds(text: string, max = 5): PaperResolveInput[] {
+  const out: PaperResolveInput[] = [];
+  const seen = new Set<string>();
+  const arxivRe =
+    /arxiv:\s*(\d{4}\.\d{4,5}(?:v\d+)?|[a-z-]+\/\d{7})|arxiv\.org\/(?:abs|pdf)\/(\d{4}\.\d{4,5}(?:v\d+)?)/gi;
+  for (const m of text.matchAll(arxivRe)) {
+    const id = (m[1] ?? m[2] ?? '').replace(/v\d+$/i, '');
+    if (!id) continue;
+    const key = `arxiv:${id.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ arxiv: id });
+    if (out.length >= max) return out;
+  }
+  const doiRe = /doi:\s*(10\.\d{4,9}\/[-._;()/:A-Z0-9]+)|doi\.org\/(10\.\d{4,9}\/[-._;()/:A-Z0-9]+)/gi;
+  for (const m of text.matchAll(doiRe)) {
+    const id = m[1] ?? m[2] ?? '';
+    if (!id) continue;
+    const key = `doi:${id.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ doi: id });
+    if (out.length >= max) return out;
+  }
+  return out;
+}
+
 /** Detect arXiv id / DOI in free text (e.g. "Reproduce arXiv:1706.03762"). */
 export function detectPaperId(text: string): PaperResolveInput | null {
   const arxiv =

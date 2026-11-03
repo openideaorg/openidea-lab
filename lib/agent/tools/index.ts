@@ -13,6 +13,8 @@ import {
   extractPaper,
   exportCitations,
   detectPaperId,
+  detectPaperIds,
+  type PaperResolveInput,
   type Resource,
 } from '../../openidea';
 import { neighbourhood, describeGraph } from '../../graph';
@@ -53,7 +55,7 @@ const MAX_PHOTO_PARTS = 12;
 
 export function definitions(): { name: string; description: string }[] {
   return [
-    { name: 'resolve_paper', description: 'Resolve arXiv/DOI and extract abstract/text (e.g. 1706.03762)' },
+    { name: 'resolve_paper', description: 'Resolve arXiv/DOI/URL papers and extract text. Single (arxiv:1706.03762) or multi (papers:[{arxiv},{doi},…], up to 5)' },
     { name: 'search_open', description: 'Search openidea.world and Muse-rank results' },
     { name: 'expand_graph', description: 'Expand knowledge-graph neighbourhood for resources' },
     { name: 'segment_photo', description: 'Segment the run photo (SAM 3 on Baseten) and name the parts (Muse). Photo runs only; the photo is already on the run, call with {}' },
@@ -116,55 +118,69 @@ export async function runTool(run: LabRun, call: ToolCall): Promise<ToolOutcome>
 }
 
 async function resolvePaperTool(run: LabRun, args: Record<string, unknown>): Promise<ToolOutcome> {
-  const detected = detectPaperId(run.input);
-  const input = {
-    arxiv: typeof args.arxiv === 'string' ? args.arxiv : detected?.arxiv,
-    doi: typeof args.doi === 'string' ? args.doi : detected?.doi,
-    url: typeof args.url === 'string' ? args.url : undefined,
-    mode: args.mode === 'pdf' ? ('pdf' as const) : ('abstract' as const),
-  };
-  if (!input.arxiv && !input.doi && !input.url) {
+  // Multi-paper path (C1): `papers: [{arxiv}, {doi}, {url}]` resolves each in
+  // turn and accumulates resources, so the run is never single-paper-only.
+  // Single-paper args and free-text detection keep working as before.
+  const wanted: PaperResolveInput[] = [];
+  if (Array.isArray(args.papers)) {
+    for (const p of (args.papers as unknown[]).slice(0, 5)) {
+      if (!p || typeof p !== 'object') continue;
+      const r = p as Record<string, unknown>;
+      if (typeof r.arxiv === 'string' && r.arxiv.trim()) wanted.push({ arxiv: r.arxiv.trim() });
+      else if (typeof r.doi === 'string' && r.doi.trim()) wanted.push({ doi: r.doi.trim() });
+      else if (typeof r.url === 'string' && r.url.trim()) wanted.push({ url: r.url.trim() });
+    }
+  } else {
+    const one: PaperResolveInput = {};
+    if (typeof args.arxiv === 'string' && args.arxiv.trim()) one.arxiv = args.arxiv.trim();
+    else if (typeof args.doi === 'string' && args.doi.trim()) one.doi = args.doi.trim();
+    else if (typeof args.url === 'string' && args.url.trim()) one.url = args.url.trim();
+    else {
+      const detected = detectPaperId(run.input);
+      if (detected) Object.assign(one, detected);
+    }
+    if (one.arxiv || one.doi || one.url) wanted.push(one);
+  }
+  if (!wanted.length) {
+    // A paste of several references ("compare 1706.03762 with 1409.1556") —
+    // resolve every id mentioned instead of failing single-paper-only.
+    wanted.push(...detectPaperIds(run.input));
+  }
+  if (!wanted.length) {
     return {
       observation: JSON.stringify({
         ok: false,
-        error: 'Provide arxiv, doi, or url (e.g. arxiv:1706.03762).',
+        error: 'Provide arxiv, doi, url, or papers:[{arxiv|doi|url}, …] (e.g. arxiv:1706.03762).',
       }),
     };
   }
 
-  const extracted = await extractPaper(input);
-  if (!extracted.ok) {
-    // Fall back to metadata-only resolve so search can still proceed.
-    const resolved = await resolvePaper(input);
-    if (!resolved.ok) return { observation: JSON.stringify(resolved) };
-    upsertResource(run, resolved.value.resource);
-    return {
-      observation: JSON.stringify({
+  const mode = args.mode === 'pdf' ? ('pdf' as const) : ('abstract' as const);
+  const papers: Array<Record<string, unknown>> = [];
+  let firstText = '';
+  for (const input of wanted.slice(0, 5)) {
+    const extracted = await extractPaper({ ...input, mode });
+    if (!extracted.ok) {
+      // Fall back to metadata-only resolve so search can still proceed.
+      const resolved = await resolvePaper(input);
+      if (!resolved.ok) {
+        papers.push({ ok: false, input, error: resolved.error });
+        continue;
+      }
+      upsertResource(run, resolved.value.resource);
+      papers.push({
         ok: true,
         resource: brief(resolved.value.resource),
         pdfUrl: resolved.value.pdfUrl,
         textChars: 0,
         note: 'extract failed; metadata only',
         extractError: extracted.error,
-      }),
-    };
-  }
-
-  upsertResource(run, extracted.value.resource);
-  // Prefer extracted text as the paper-run input when the user only pasted an id.
-  if (extracted.value.text && (run.input.length < 200 || detectPaperId(run.input))) {
-    run.input = [
-      extracted.value.resource.title,
-      extracted.value.resource.authors?.join(', '),
-      extracted.value.text,
-    ]
-      .filter(Boolean)
-      .join('\n\n')
-      .slice(0, 60_000);
-  }
-
-  return {
-    observation: JSON.stringify({
+      });
+      continue;
+    }
+    upsertResource(run, extracted.value.resource);
+    if (!firstText && extracted.value.text) firstText = extracted.value.text;
+    papers.push({
       ok: true,
       resource: brief(extracted.value.resource),
       pdfUrl: extracted.value.pdfUrl,
@@ -172,6 +188,34 @@ async function resolvePaperTool(run: LabRun, args: Record<string, unknown>): Pro
       truncated: extracted.value.truncated,
       textChars: extracted.value.text.length,
       sections: extracted.value.sections.map((s) => s.heading),
+    });
+  }
+
+  const succeeded = papers.filter((p) => p.ok === true);
+  if (!succeeded.length) {
+    return { observation: JSON.stringify({ ok: false, count: 0, papers }) };
+  }
+  // Prefer extracted text as the paper-run input when the user only pasted
+  // id(s) — single-paper case only, so a multi-paper paste keeps its context.
+  if (firstText && (run.input.length < 200 || (wanted.length === 1 && detectPaperId(run.input)))) {
+    const first = succeeded[0].resource as { title?: string };
+    run.input = [
+      typeof first?.title === 'string' ? first.title : '',
+      firstText,
+    ]
+      .filter(Boolean)
+      .join('\n\n')
+      .slice(0, 60_000);
+  }
+
+  const single = papers.length === 1 ? papers[0] : undefined;
+  return {
+    observation: JSON.stringify({
+      ok: true,
+      count: succeeded.length,
+      papers,
+      // Single-paper shape is unchanged for older controllers.
+      ...(single ? single : {}),
     }),
   };
 }

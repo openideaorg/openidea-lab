@@ -64,6 +64,50 @@ describe('agent verification gates', () => {
     expect(r.ok).toBe(false);
   });
 
+  it('refuses a paper submit whose sandbox never ran', () => {
+    const r = checkPrototype(baseRun({ kind: 'paper', sandbox: undefined, verdict: undefined }));
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.feedback).toMatch(/passing sandbox run/);
+  });
+
+  it('refuses a paper submit with output but no CHECK line (toy print)', () => {
+    const r = checkPrototype(
+      baseRun({
+        kind: 'paper',
+        sandbox: { ok: true, output: 'attention weights:\n[[0.25 0.25] [0.25 0.25]]' },
+        verdict: { verdict: 'partial', reason: 'It runs.' },
+      }),
+    );
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.feedback).toMatch(/CHECK: pass/);
+  });
+
+  it('refuses a paper submit with CHECK but no null baseline', () => {
+    const r = checkPrototype(
+      baseRun({
+        kind: 'paper',
+        sandbox: { ok: true, output: 'CHECK: pass peak at n=d (err 0.21)' },
+        verdict: { verdict: 'partial', reason: 'Peak is there.' },
+      }),
+    );
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.feedback).toMatch(/baseline/);
+  });
+
+  it('accepts a paper submit with CHECK + baseline + verdict', () => {
+    const r = checkPrototype(
+      baseRun({
+        kind: 'paper',
+        sandbox: {
+          ok: true,
+          output: 'CHECK: pass peak at n=d (test err 0.21±0.02 vs shuffled baseline 0.34±0.02)',
+        },
+        verdict: { verdict: 'matches', reason: 'Peak at the threshold, beats baseline.' },
+      }),
+    );
+    expect(r.ok).toBe(true);
+  });
+
   it('accepts a well-formed Muse verdict', () => {
     const r = checkClaimsShape({ verdict: 'partial', reason: 'Peak is near the claim.' });
     expect(r.ok).toBe(true);

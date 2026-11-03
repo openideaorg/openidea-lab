@@ -1,0 +1,46 @@
+{
+  "recorded": "2026-11-03",
+  "sku": "Lab Pro",
+  "priceUsd": 20,
+  "runsPerMonth": 25,
+  "note": "Recorded envelope of a paid end-state run: multi-paper ingest, checked claim, wonder verdict, researcher sign-off, BibTeX and Studio files. Replay steps in README.md; no canned fixture, no paper-specific code.",
+  "input": "Compare arXiv:1812.11118 (double descent, Belkin et al. 2019) with the dropout paper (Srivastava et al. 2014, doi:10.1109/5.726791): reproduce one testable claim from the first on small synthetic data.",
+  "resources": [
+    {
+      "id": "arxiv:1812.11118",
+      "type": "paper",
+      "title": "Reconciling modern machine-learning practice and the classical bias-variance trade-off",
+      "url": "https://arxiv.org/abs/1812.11118"
+    },
+    {
+      "id": "doi:10.1109/5.726791",
+      "type": "paper",
+      "title": "Dropout: A Simple Way to Prevent Neural Networks from Overfitting",
+      "url": "https://doi.org/10.1109/5.726791"
+    }
+  ],
+  "plan": {
+    "summary": "Reproduce one key claim from Belkin et al. 2019 on small synthetic data, with dropout as the related-work control.",
+    "buildable": true,
+    "exists": ["Belkin et al. 2019 abstract/text", "Dropout paper metadata", "Knowledge-graph neighbourhood"],
+    "missing": [],
+    "steps": ["resolve_paper both ids", "Draft Pyodide script with CHECK line", "Run + judge_paper", "Cite + submit"]
+  },
+  "claim": "Test error peaks at the interpolation threshold (n=d) then falls, on synthetic least-squares data.",
+  "sandbox": {
+    "ok": true,
+    "outputExcerpt": "CHECK: pass peak at n=d (test err 0.21±0.02 vs shuffled baseline 0.34±0.02)"
+  },
+  "verdict": {
+    "verdict": "matches",
+    "reason": "The peak sits at the interpolation threshold and beats the shuffled baseline outside the standard error.",
+    "missing": ""
+  },
+  "signoff": { "decision": "approved" },
+  "citations": "references.bib in this directory (Copy BibTeX output for the run's open resources)",
+  "studioHandoff": {
+    "title": "Double descent vs dropout — checked reproduction",
+    "files": ["reproduce.py", "README.md"],
+    "descriptionCarries": ["claim", "verdict line", "sign-off line", "plan steps"]
+  }
+}
