@@ -12,5 +12,7 @@ export function checkClaimsShape(raw: unknown): ClaimsCheck {
   if (typeof v.reason !== 'string' || !v.reason.trim()) {
     return { ok: false, feedback: 'verdict reason must be a non-empty string.' };
   }
-  return { ok: true, verdict: { verdict: v.verdict as LabVerdict['verdict'], reason: v.reason } };
+  // Pass through the judge's "what would raise this" note (capped like lib/muse.ts parseVerdict) so the UI can render it.
+  const missing = typeof v.missing === 'string' && v.missing.trim() ? v.missing.trim().slice(0, 300) : undefined;
+  return { ok: true, verdict: { verdict: v.verdict as LabVerdict['verdict'], reason: v.reason, ...(missing ? { missing } : {}) } };
 }

@@ -49,6 +49,8 @@ export interface Citation {
 export interface LabVerdict {
   verdict: 'matches' | 'partial' | 'no';
   reason: string;
+  /** The single extra check that would raise this toward matches (absent when matches). Mirrors lib/muse.ts Verdict so the agent loop and one-shot flows render the same verdict box. */
+  missing?: string;
 }
 
 export interface LabRun {

@@ -135,7 +135,7 @@ export async function museFix(
   }
 }
 
-/** Muse Wonder paper verdict. */
+/** Muse Wonder paper verdict — same strict bar as lib/muse.ts verdict (the agent loop's judge_paper calls this, so a weak prompt here would let toy reproductions pass and fail the pay-judge). */
 export async function museVerdict(claim: string, readme: string, output: string): Promise<Result<LabVerdict>> {
   const r = await chat(
     'verdict',
@@ -144,8 +144,11 @@ export async function museVerdict(claim: string, readme: string, output: string)
       {
         role: 'system',
         content:
-          'Judge whether a small reproduction supports a paper claim. Be strict about shape (peaks, directions), lenient on exact numbers. ' +
-          'Return JSON {"verdict": "matches" | "partial" | "no", "reason": string}.',
+          'Judge whether a small reproduction supports a paper claim. Be strict about the SHAPE of the result (where peaks and minima fall, directions of change) and lenient about exact numbers, since the data is synthetic. ' +
+          'A "matches" needs two things in the output: a line starting with "CHECK:" saying pass with the measured number, AND a null-baseline comparison (shuffled/permuted control) the claim beats outside the standard error. ' +
+          'Cap at "partial" when the shape is right but the CHECK line or the baseline numbers are missing — name which is missing in "missing". ' +
+          'Return "no" when the CHECK line says fail, the effect is absent or reversed, or the output does not test the claim at all. ' +
+          'Return JSON {"verdict": "matches" | "partial" | "no", "reason": string, "missing": string}. The reason is one or two plain sentences a non-expert can follow, naming the number or line that decided it. "missing" is the single extra check that would raise this toward matches (empty string when matches).',
       },
       { role: 'user', content: `Claim:\n${claim}\n\nREADME:\n${readme}\n\nPrinted output:\n${output}` },
     ],
@@ -155,7 +158,10 @@ export async function museVerdict(claim: string, readme: string, output: string)
   try {
     const v = extractJson(r.value) as LabVerdict;
     if (!['matches', 'partial', 'no'].includes(v.verdict)) throw new Error('bad');
-    return { ok: true, value: { verdict: v.verdict, reason: String(v.reason ?? '') } };
+    const reason = String(v.reason ?? '');
+    if (!reason.trim()) throw new Error('bad');
+    const missing = typeof v.missing === 'string' && v.missing.trim() ? v.missing.trim().slice(0, 300) : undefined;
+    return { ok: true, value: { verdict: v.verdict, reason, ...(missing ? { missing } : {}) } };
   } catch {
     return { ok: false, error: 'Verdict returned invalid JSON' };
   }
