@@ -110,7 +110,7 @@ describe('segment_photo success path (mocked providers)', () => {
             }),
           };
         }
-        if (u.includes('openidea.world')) {
+        if (u.includes('/api/v1/search') || u.includes('openidea.')) {
           return {
             ok: true,
             status: 200,
