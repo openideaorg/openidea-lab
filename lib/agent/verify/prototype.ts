@@ -46,6 +46,16 @@ function checkPaperSubmit(run: LabRun): PrototypeCheck {
         'Sandbox output names no null baseline (shuffled/permuted control). A claim passes only by beating a baseline outside the standard error — print both numbers and re-run.',
     };
   }
+  // Same structural rule for the scale line: a run that cannot say what it
+  // cut down versus the paper must not be exported as the paper's result.
+  const readme = run.files.find((f) => /readme/i.test(f.path))?.content ?? '';
+  if (!run.scale && !/^[#*\->\s]*scale\b[^:]*:/im.test(readme)) {
+    return {
+      ok: false,
+      feedback:
+        'README.md has no "Scale:" line (the paper\'s setting next to this run\'s samples, dimensions, trials and seconds on CPU, ending with what the scaled-down run cannot show). Add it and re-run so the sample-scale number is not exported as the paper\'s.',
+    };
+  }
   if (!run.verdict) {
     return { ok: false, feedback: 'Paper runs need judge_paper before submit. Running ≠ reproducing.' };
   }

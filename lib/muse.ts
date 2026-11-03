@@ -340,6 +340,23 @@ export function parseVerdict(text: string): Result<Verdict> {
   }
 }
 
+/** The one line a scale-less README has to add; shown as the verdict's "missing". */
+export const SCALE_MISSING =
+  'Add a "Scale:" line to README.md: the paper\'s setting next to this run\'s (samples, dimensions, trials, seconds on CPU) and what the scaled-down run cannot show.';
+
+/**
+ * Scale gate, enforced in code like the CHECK/baseline rule: a reproduction
+ * whose README does not say what was cut down versus the paper cannot
+ * "match" — the sample-scale number would read as the paper's own. Caps at
+ * partial and names the exact line to add, so the fix loop converges. Pure,
+ * so unit-testable; "no" and "partial" pass through untouched.
+ */
+export function gateScale(v: Verdict, readme: string): Verdict {
+  if (v.verdict !== 'matches') return v;
+  if (scaleFromReadme([{ path: 'README.md', content: readme }])) return v;
+  return { verdict: 'partial', reason: `${v.reason} The README does not state the run's scale versus the paper.`.trim(), missing: SCALE_MISSING };
+}
+
 /**
  * Compare what the reproduction printed with the paper's claim. A build
  * that "runs" is not a reproduction — a toy that prints weights with no
@@ -361,7 +378,9 @@ export async function verdict(claim: string, readme: string, output: string): Pr
     true,
   );
   if (!r.ok) return r;
-  return parseVerdict(r.value);
+  const parsed = parseVerdict(r.value);
+  if (!parsed.ok) return parsed;
+  return { ok: true, value: gateScale(parsed.value, readme) };
 }
 
 // ---------------------------------------------------------------------------

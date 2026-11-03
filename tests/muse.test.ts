@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { claimFromReadme, modelFor, parseVerdict, sanitizeFiles, scaleFromReadme } from '@/lib/muse';
+import { claimFromReadme, gateScale, modelFor, parseVerdict, sanitizeFiles, scaleFromReadme, SCALE_MISSING } from '@/lib/muse';
 
 const saved = { ...process.env };
 afterEach(() => {
@@ -53,6 +53,28 @@ describe('scaleFromReadme', () => {
   it('ignores prose that merely mentions scale and returns empty when the line is absent', () => {
     expect(scaleFromReadme([{ path: 'README.md', content: '# Repro\n\nWe scale the inputs to unit variance.\n\nClaim: x.' }])).toBe('');
     expect(scaleFromReadme([])).toBe('');
+  });
+});
+
+describe('gateScale', () => {
+  const matches = { verdict: 'matches' as const, reason: 'CHECK: pass, 0.21 vs baseline 0.34.' };
+
+  it('caps a matches at partial when the README has no Scale line, naming the line to add', () => {
+    const v = gateScale(matches, '# Repro\n\nClaim: peak at n=d.');
+    expect(v.verdict).toBe('partial');
+    expect(v.reason).toContain('CHECK: pass, 0.21 vs baseline 0.34.');
+    expect(v.missing).toBe(SCALE_MISSING);
+  });
+
+  it('passes a matches through untouched when the README states the scale', () => {
+    expect(gateScale(matches, 'Claim: x.\n\n**Scale:** paper n=10k; this run n=30, ~3 s CPU. Cannot show the plateau.')).toEqual(matches);
+  });
+
+  it('leaves partial and no alone (nothing to cap, and their missing line is the judge\'s)', () => {
+    const partial = { verdict: 'partial' as const, reason: 'No baseline.', missing: 'Add the shuffled baseline.' };
+    expect(gateScale(partial, '')).toEqual(partial);
+    const no = { verdict: 'no' as const, reason: 'CHECK: fail.' };
+    expect(gateScale(no, '')).toEqual(no);
   });
 });
 

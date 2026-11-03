@@ -94,14 +94,42 @@ describe('agent verification gates', () => {
     if (!r.ok) expect(r.feedback).toMatch(/baseline/);
   });
 
-  it('accepts a paper submit with CHECK + baseline + verdict', () => {
+  it('refuses a paper submit with CHECK + baseline but no Scale line (sample-scale would read as the paper\'s number)', () => {
     const r = checkPrototype(
       baseRun({
         kind: 'paper',
+        sandbox: { ok: true, output: 'CHECK: pass peak at n=d (test err 0.21±0.02 vs shuffled baseline 0.34±0.02)' },
+        verdict: { verdict: 'matches', reason: 'Peak at the threshold, beats baseline.' },
+      }),
+    );
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.feedback).toMatch(/Scale:/);
+  });
+
+  it('accepts a paper submit with CHECK + baseline + Scale + verdict', () => {
+    const r = checkPrototype(
+      baseRun({
+        kind: 'paper',
+        files: [
+          { path: 'reproduce.py', content: 'print(1)' },
+          { path: 'README.md', content: 'Claim: peak at n=d.\n\nScale: paper n=10k; this run n=30, 20 trials, ~3 s CPU. Cannot show the plateau.' },
+        ],
         sandbox: {
           ok: true,
           output: 'CHECK: pass peak at n=d (test err 0.21±0.02 vs shuffled baseline 0.34±0.02)',
         },
+        verdict: { verdict: 'matches', reason: 'Peak at the threshold, beats baseline.' },
+      }),
+    );
+    expect(r.ok).toBe(true);
+  });
+
+  it('accepts the Scale line from the run itself when the draft step extracted it', () => {
+    const r = checkPrototype(
+      baseRun({
+        kind: 'paper',
+        scale: 'paper n=10k; this run n=30, ~3 s CPU.',
+        sandbox: { ok: true, output: 'CHECK: pass peak at n=d (test err 0.21±0.02 vs shuffled baseline 0.34±0.02)' },
         verdict: { verdict: 'matches', reason: 'Peak at the threshold, beats baseline.' },
       }),
     );
