@@ -7,28 +7,67 @@
 
 import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import type { LabRun, AgentTurnResult } from '@/lib/agent/types';
+import type { LabRun, LabRunStatus, AgentTurnResult } from '@/lib/agent/types';
 import type { GeneratedFile } from '@/lib/muse';
 import { LAB_PLANS, LAB_PRO_MAX_PRICE_USD } from '@/lib/lab-plan';
 import { StudioButton } from '../studio-button';
 import { UsagePanel } from '../usage-panel';
 
-async function post<T>(body: unknown): Promise<
+type ApiResult<T> =
   | { ok: true; value: T; meter?: unknown; plans?: unknown; error?: string }
-  | { ok: false; error: string; missing?: string; upgrade?: boolean; meter?: unknown }
-> {
-  const res = await fetch('/api/lab/agent', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  const text = await res.text();
+  | { ok: false; error: string; missing?: string; upgrade?: boolean; meter?: unknown };
+
+/** A dropped connection becomes a result the page can show, never a thrown TypeError in the Next overlay. */
+async function call<T>(init: RequestInit, query = ''): Promise<ApiResult<T>> {
+  let res: Response;
+  try {
+    res = await fetch(`/api/lab/agent${query}`, init);
+  } catch {
+    return { ok: false, error: 'Could not reach the Lab server (network error or the connection timed out). Check it is running and try again.' };
+  }
+  const text = await res.text().catch(() => '');
   if (!text) return { ok: false, error: `Empty response (HTTP ${res.status})` };
   try {
     return JSON.parse(text);
   } catch {
     return { ok: false, error: `Non-JSON (HTTP ${res.status}): ${text.slice(0, 200)}` };
   }
+}
+
+function post<T>(body: unknown): Promise<ApiResult<T>> {
+  return call<T>({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+}
+
+const POLL_MS = 2000;
+/** A turn is one Muse call plus one tool; the photo GPU wake is the slow case at ~90s. Past this the server has lost the run. */
+const STALE_MS = 5 * 60_000;
+const SETTLED: ReadonlySet<LabRunStatus> = new Set(['done', 'failed', 'needs_input', 'needs_client', 'awaiting_signoff', 'paused']);
+
+/**
+ * `start` / `resume` answer as soon as the run is saved; the turns finish on the
+ * server afterwards. Poll until the run settles, reporting each saved turn so
+ * the console fills in while waiting.
+ */
+async function settle(first: LabRun, onTurn: (run: LabRun) => void): Promise<ApiResult<AgentTurnResult>> {
+  let run = first;
+  while (!SETTLED.has(run.status)) {
+    onTurn(run);
+    await new Promise((r) => setTimeout(r, POLL_MS));
+    const r = await call<LabRun>({ method: 'GET' }, `?runId=${encodeURIComponent(run.id)}`);
+    if (!r.ok) return r;
+    run = r.value;
+    if (Date.now() - run.updatedAt > STALE_MS) {
+      return { ok: false, error: 'The run stopped reporting progress. Start it again.' };
+    }
+  }
+  return {
+    ok: true,
+    value: {
+      run,
+      needsClientSandbox: run.status === 'needs_client',
+      needsHuman: run.status === 'needs_input' || run.status === 'awaiting_signoff',
+    },
+  };
 }
 
 function AgentPageInner() {
@@ -50,7 +89,8 @@ function AgentPageInner() {
     if (k === 'paper' || k === 'idea' || k === 'photo') setKind(k);
   }, [params]);
 
-  async function applyResult(r: { ok: true; value: AgentTurnResult } | { ok: false; error: string; missing?: string; upgrade?: boolean }) {
+  async function applyResult(first: ApiResult<{ run: LabRun }>) {
+    const r = first.ok ? await settle(first.value.run, setRun) : first;
     if (!r.ok) {
       setError(r.missing ? `${r.error}. Set ${r.missing} in .env.local (from Cursor / Claude Code Muse keys).` : r.error);
       setUpgrade(!!r.upgrade);
@@ -73,7 +113,7 @@ function AgentPageInner() {
     setError(null);
     setRun(null);
     // Photo runs carry the image on the run; the controller calls segment_photo with {}.
-    const r = await post<AgentTurnResult>(
+    const r = await post<{ run: LabRun }>(
       kind === 'photo' && photo
         ? { action: 'start', kind, input, planTier, image: photo }
         : { action: 'start', kind, input, planTier },
@@ -106,7 +146,7 @@ function AgentPageInner() {
   async function resume(patch: Record<string, unknown>) {
     if (!run) return;
     setBusy(true);
-    const r = await post<AgentTurnResult>({ action: 'resume', runId: run.id, ...patch });
+    const r = await post<{ run: LabRun }>({ action: 'resume', runId: run.id, ...patch });
     await applyResult(r);
   }
 

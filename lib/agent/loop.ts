@@ -193,17 +193,38 @@ export async function runAgent(run: LabRun, opts: { maxTurns?: number } = {}): P
   return { run };
 }
 
+/**
+ * Routes answer before the turns finish (a start used to hold one request for
+ * the whole run, and the proxy in front of the dev server cut it at 60s, which
+ * the browser reports as "Failed to fetch"). A throw here must become a failed
+ * run on disk, or the client would poll a run that stays `running` forever.
+ */
+export async function runAgentInBackground(run: LabRun): Promise<void> {
+  try {
+    await runAgent(run);
+  } catch (e) {
+    run.status = 'failed';
+    run.stopReason = e instanceof Error ? e.message : String(e);
+    pushConsole(run, 'observe', `Run failed: ${run.stopReason}`);
+    await saveProgress(run);
+  }
+}
+
+export interface ResumePatch {
+  planApproved?: boolean;
+  signedOff?: boolean;
+  sandbox?: LabRun['sandbox'];
+  humanNote?: string;
+  image?: string;
+}
+
 /** Resume after HITL / client sandbox observation. */
-export async function resumeRun(
-  id: string,
-  patch: {
-    planApproved?: boolean;
-    signedOff?: boolean;
-    sandbox?: LabRun['sandbox'];
-    humanNote?: string;
-    image?: string;
-  },
-): Promise<AgentTurnResult> {
+export async function resumeRun(id: string, patch: ResumePatch): Promise<AgentTurnResult> {
+  return runAgent(await applyResume(id, patch));
+}
+
+/** Record the human / sandbox observation on the run and save it, without running a turn. */
+export async function applyResume(id: string, patch: ResumePatch): Promise<LabRun> {
   const run = await loadProgress(id);
   if (!run) throw new Error(`Unknown run ${id}`);
 
@@ -245,7 +266,7 @@ export async function resumeRun(
   }
 
   await saveProgress(run);
-  return runAgent(run);
+  return run;
 }
 
 export async function getRun(id: string): Promise<LabRun | null> {

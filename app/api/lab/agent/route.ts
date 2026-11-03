@@ -1,9 +1,10 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, after } from 'next/server';
 import { z } from 'zod';
 import { safe } from '@/lib/route';
 import { overBudget } from '@/lib/budget';
 import { getLabPlan, LAB_PLANS, LAB_PRO_MAX_PRICE_USD } from '@/lib/lab-plan';
-import { createRun, getRun, resumeRun, runAgent } from '@/lib/agent/loop';
+import { applyResume, createRun, getRun, runAgentInBackground } from '@/lib/agent/loop';
+import { saveProgress } from '@/lib/agent/progress';
 import { takeLabRunSlot } from '@/lib/agent/meter';
 import { MAX_PHOTO_CHARS } from '@/lib/agent/tools';
 import { keyFor } from '@/lib/env';
@@ -48,6 +49,11 @@ const Body = z.discriminatedUnion('action', [Start, Resume, Get]);
 /**
  * Muse-only Lab agent API.
  *
+ * `start` and `resume` answer as soon as the run is saved and finish the turns
+ * after the response (`after`); the page polls GET until the run settles. A
+ * turn can take a minute, and holding one request that long got the
+ * connection cut at 60s in front of the dev server ("Failed to fetch").
+ *
  * Requires META_API_KEY (Meta Model API / Muse Spark). Operators obtain the
  * key from Cursor / Claude Code Muse configuration ("Configure Claude Code" /
  * Cursor-configured Muse API keys) and set it as META_API_KEY — Lab never
@@ -86,10 +92,12 @@ export const POST = safe(async (req: Request) => {
     if (blocked) return NextResponse.json({ ok: false, error: blocked, budget: true }, { status: 429 });
 
     const run = createRun({ kind: body.kind, input: body.input, planTier: tier, image: body.image });
-    const result = await runAgent(run);
+    await saveProgress(run);
+    after(() => runAgentInBackground(run));
     return NextResponse.json({
       ok: true,
-      value: result,
+      value: { run },
+      pending: true,
       meter,
       plans: LAB_PLANS,
       maxPriceUsd: LAB_PRO_MAX_PRICE_USD,
@@ -98,16 +106,29 @@ export const POST = safe(async (req: Request) => {
     });
   }
 
+  let run;
   try {
-    const result = await resumeRun(body.runId, {
+    run = await applyResume(body.runId, {
       planApproved: body.planApproved,
       signedOff: body.signedOff,
       humanNote: body.humanNote,
       image: body.image,
       sandbox: body.sandbox,
     });
-    return NextResponse.json({ ok: true, value: result, plans: LAB_PLANS, maxPriceUsd: LAB_PRO_MAX_PRICE_USD });
   } catch (e) {
     return NextResponse.json({ ok: false, error: e instanceof Error ? e.message : String(e) }, { status: 404 });
   }
+  after(() => runAgentInBackground(run));
+  return NextResponse.json({ ok: true, value: { run }, pending: true, plans: LAB_PLANS, maxPriceUsd: LAB_PRO_MAX_PRICE_USD });
 });
+
+/** Poll a run. Reads cost nothing, so this skips the hourly rate limit the page would otherwise burn while waiting. */
+export const GET = safe(
+  async (req: Request) => {
+    const runId = new URL(req.url).searchParams.get('runId') ?? '';
+    const run = runId.length >= 4 ? await getRun(runId) : null;
+    if (!run) return NextResponse.json({ ok: false, error: 'Unknown run' }, { status: 404 });
+    return NextResponse.json({ ok: true, value: run });
+  },
+  { spends: false },
+);
